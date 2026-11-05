@@ -18,6 +18,9 @@ CREATE INDEX ix_team_game_team       ON team_game (team_id);
 CREATE INDEX ix_batter_game_player   ON batter_game (player_id);
 CREATE INDEX ix_pitcher_game_player  ON pitcher_game (player_id);
 
+-- 선수 프로필: 한 선수의 타석 집계 (PK가 game_id로 시작해서 player_id만으로는 못 찾음)
+--   tools/perf_check.sql 에서 순차 탐색(Seq Scan)을 발견해 추가했다.
+CREATE INDEX ix_pa_player            ON plate_appearance (player_id);
 -- 타석 결과별 집계(스프레이 차트 등)
 CREATE INDEX ix_pa_result_code       ON plate_appearance (result_code);
 

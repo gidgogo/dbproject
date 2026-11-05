@@ -158,7 +158,7 @@ COMMENT ON COLUMN player_salary.source_text    IS '연봉원문: 상세 페이�
 CREATE TABLE game (
     game_id          d_game_id    NOT NULL,
     game_date        date         NOT NULL,
-    season           smallint     NOT NULL GENERATED ALWAYS AS (EXTRACT(YEAR FROM game_date)::smallint) STORED,
+    season           d_season     NOT NULL GENERATED ALWAYS AS (EXTRACT(YEAR FROM game_date)::smallint) STORED,
     away_team_id     d_team_id    NOT NULL,
     home_team_id     d_team_id    NOT NULL,
     doubleheader_no  smallint     NOT NULL DEFAULT 0,
@@ -365,7 +365,7 @@ CREATE TABLE pitcher_game (
     team_id            d_team_id    NOT NULL,
     appearance_seq     smallint     NOT NULL,
     decision           char(1),
-    outs_recorded      d_count      NOT NULL,
+    outs_recorded      d_outs       NOT NULL,
     batters_faced      d_count      NOT NULL,
     at_bats            d_count      NOT NULL,
     pitches            d_count,
@@ -561,7 +561,7 @@ COMMENT ON COLUMN pitch.pitcher_id        IS '투수ID: 선수(FK)';
 COMMENT ON COLUMN pitch.batter_id         IS '타자ID: 선수(FK)';
 COMMENT ON COLUMN pitch.balls             IS '볼카운트(볼): 투구 직전';
 COMMENT ON COLUMN pitch.strikes           IS '볼카운트(스트라이크): 투구 직전';
-COMMENT ON COLUMN pitch.outs              IS '아웃카운트: 타석 시작 시점';
+COMMENT ON COLUMN pitch.outs              IS '현재아웃수: 타석 시작 시점의 아웃 수 (0~2)';
 COMMENT ON COLUMN pitch.pitch_type_ko     IS '구종명: 구종(FK). 미측정이면 NULL';
 COMMENT ON COLUMN pitch.speed_kmh         IS '구속: km/h';
 COMMENT ON COLUMN pitch.pitch_result_code IS '투구결과코드: 투구결과(FK)';

@@ -5,6 +5,7 @@
   erd/erd_logical.mmd            Mermaid 논리 ERD (모든 속성, PK/FK, 식별=실선/비식별=점선)
   docs/report/10_table_spec.md   보고서 10장 테이블 기술서 (Attribute, Data Type, NN, Key, Default, Description)
   docs/report/09_domain_usage.md 도메인별 사용 컬럼 목록 (보고서 9장 부록)
+  docs/report/08_glossary_terms.md 표준 용어 목록 (논리명 ↔ 물리명, 보고서 8장 부록)
 
 필요: 스키마가 만들어진 DB (erd/ddl/00_create_all.sql) 와 psql
 사용 예: python tools/gen_erd_docs.py --db kbo
@@ -258,6 +259,31 @@ def gen_domain_usage(cols, domains) -> str:
     return "\n".join(out) + "\n"
 
 
+def gen_terms(cols) -> str:
+    """같은 논리명이 여러 테이블에 나오면 한 줄로 묶는다 (물리명·도메인이 다르면 경고 표시)"""
+    terms: dict[str, dict] = {}
+    for t in ORDER:
+        for c in cols[t]:
+            ln, desc = logical_name(c["comment"])
+            if not ln:
+                continue
+            e = terms.setdefault(ln, {"phys": set(), "types": set(), "desc": desc, "tables": []})
+            e["phys"].add(c["name"])
+            e["types"].add(c["domain"].split(" (")[0] if c["domain"] else short_type(c["type"]))
+            e["tables"].append(t)
+    out = ["# 8-부록. 표준 용어 목록 (자동 생성)", "",
+           "> 컬럼 COMMENT의 '논리명'을 모은 것. 같은 논리명에 물리명이나 자료형이 둘 이상이면 ⚠️ 표시 → 통일 검토",
+           "", "| 논리명(용어) | 물리명 | 도메인/자료형 | 설명(대표) | 사용 테이블 |", "|---|---|---|---|---|"]
+    for ln in sorted(terms):
+        e = terms[ln]
+        # 경기 단위(d_count)·시즌 누적(d_total)은 같은 의미의 다른 집계 수준이라 경고하지 않는다
+        types = {"횟수" if x in ("d_count", "d_total") else x for x in e["types"]}
+        warn = " ⚠️" if len(e["phys"]) > 1 or len(types) > 1 else ""
+        out.append(f"| {ln}{warn} | {', '.join(sorted(e['phys']))} | {', '.join(sorted(e['types']))} | "
+                   f"{e['desc']} | {', '.join(dict.fromkeys(e['tables']))} |")
+    return "\n".join(out) + "\n"
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--db", default="kbo")
@@ -272,6 +298,7 @@ def main() -> int:
     (ROOT / "docs/report/10_table_spec.md").write_text(gen_table_spec(tables, cols, pk, uniques, fks, checks),
                                                        encoding="utf-8")
     (ROOT / "docs/report/09_domain_usage.md").write_text(gen_domain_usage(cols, domains), encoding="utf-8")
+    (ROOT / "docs/report/08_glossary_terms.md").write_text(gen_terms(cols), encoding="utf-8")
     print(f"테이블 {len(tables)}개, FK {len(fks)}개 → erd/kbo_erd.dbml, erd/erd_logical.mmd, "
           "docs/report/10_table_spec.md, docs/report/09_domain_usage.md")
     return 0

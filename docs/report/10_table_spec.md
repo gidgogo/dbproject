@@ -131,7 +131,7 @@ KBO playerId로 식별하는 선수 마스터. 이름은 동명이인·개명이
 |---|---|---|:---:|---|---|---|
 | game_id | 경기ID | d_game_id (character varying(14)) | Y | PK |  | YYYYMMDD_원정팀코드홈팀코드더블헤더 (예: 20250601_OBWO0) |
 | game_date | 경기일자 | date | Y |  |  | 경기 날짜 |
-| season | 시즌 | smallint | Y | FK→team_season.season | GENERATED: (EXTRACT(year FROM game_date))::smallint | 경기일자의 연도 (생성 컬럼, 직접 입력 불가) |
+| season | 시즌 | d_season (smallint) | Y | FK→team_season.season | GENERATED: (EXTRACT(year FROM game_date))::smallint | 경기일자의 연도 (생성 컬럼, 직접 입력 불가) |
 | away_team_id | 원정팀ID | d_team_id (character(2)) | Y | FK→team_season.team_id |  | (원정팀ID, 시즌)이 팀시즌(FK) |
 | home_team_id | 홈팀ID | d_team_id (character(2)) | Y | FK→team_season.team_id |  | (홈팀ID, 시즌)이 팀시즌(FK) |
 | doubleheader_no | 더블헤더번호 | smallint | Y |  | 0 | 0 일반, 1 1차전, 2 2차전 |
@@ -307,7 +307,7 @@ kbodata config.ini [BATTER] 코드표 (좌중안=1020 등)
 | team_id | 팀ID | d_team_id (character(2)) | Y | FK→team_game.team_id, UQ |  | 소속 팀 |
 | appearance_seq | 등판순서 | smallint | Y | UQ |  | 1이 선발 |
 | decision | 승패세홀 | character(1) |  |  |  | W 승, L 패, S 세이브, H 홀드, 없으면 NULL |
-| outs_recorded | 아웃카운트 | d_count (smallint) | Y |  |  | 이닝×3 (6⅓이닝 = 19). kbodata 이닝 61 → 19 |
+| outs_recorded | 아웃카운트 | d_outs (integer) | Y |  |  | 이닝×3 (6⅓이닝 = 19). kbodata 이닝 61 → 19 |
 | batters_faced | 상대타자수 | d_count (smallint) | Y |  |  | TBF |
 | at_bats | 피타수 | d_count (smallint) | Y |  |  | 상대 타수 |
 | pitches | 투구수 | d_count (smallint) |  |  |  | NP (과거 경기는 없을 수 있음) |
@@ -330,7 +330,7 @@ kbodata config.ini [BATTER] 코드표 (좌중안=1020 등)
 - `ck_pitcher_game_er`: `CHECK (((earned_runs)::smallint <= (runs_allowed)::smallint))`
 - `ck_pitcher_game_hits`: `CHECK (((hits_allowed)::smallint <= (at_bats)::smallint))`
 - `ck_pitcher_game_hr`: `CHECK (((home_runs_allowed)::smallint <= (hits_allowed)::smallint))`
-- `ck_pitcher_game_outs`: `CHECK (((outs_recorded)::smallint <= 81))`
+- `ck_pitcher_game_outs`: `CHECK (((outs_recorded)::integer <= 81))`
 - `ck_pitcher_game_seq`: `CHECK ((appearance_seq >= 1))`
 
 ## 10.15 기타기록유형 (game_event_type)
@@ -443,7 +443,7 @@ kbodata config.ini [BATTER] 코드표 (좌중안=1020 등)
 | batter_id | 타자ID | d_player_id (integer) | Y | FK→player.player_id |  | 선수(FK) |
 | balls | 볼카운트(볼) | smallint | Y |  |  | 투구 직전 |
 | strikes | 볼카운트(스트라이크) | smallint | Y |  |  | 투구 직전 |
-| outs | 아웃카운트 | smallint | Y |  |  | 타석 시작 시점 |
+| outs | 현재아웃수 | smallint | Y |  |  | 타석 시작 시점의 아웃 수 (0~2) |
 | pitch_type_ko | 구종명 | character varying(10) |  | FK→pitch_type.pitch_type_ko |  | 구종(FK). 미측정이면 NULL |
 | speed_kmh | 구속 | smallint |  |  |  | km/h |
 | pitch_result_code | 투구결과코드 | character(1) |  | FK→pitch_result.pitch_result_code |  | 투구결과(FK) |
