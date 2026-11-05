@@ -76,6 +76,7 @@ def fetch_one(session: PoliteSession, pid: int, kind: str) -> tuple[dict, str]:
         prof = parse_profile(html)
         if prof:
             save_text(RAW_DIR / f"{pid}.html", html)
+            prof["is_retired"] = k.startswith("retire")
             return prof, url
     return {}, ""
 

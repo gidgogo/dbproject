@@ -196,7 +196,8 @@ def parse_profile(html: str) -> dict:
     sal_krw, sal_usd = parse_money(salary_text)
     draft, join = lbl("lblDraft"), lbl("lblJoinInfo")
     team_el = soup.select_one("h4.team") or soup.find(id=re.compile(r"h4Team$"))
-    is_retired = bool(soup.find(id=re.compile(r"ucPlayerProfile_lblName$")))
+    # 은퇴 여부는 HTML이 아니라 "은퇴 선수 페이지에서 받았는가"로 정한다(kbo_profiles.py).
+    # ucPlayerProfile_ 접두어는 퓨처스 선수 페이지에서도 보여서 은퇴 표시로 쓸 수 없다.
     return {
         "player_name": name,
         "uniform_no": (lbl("lblBackNo") or "").replace("No.", "").strip() or None,
@@ -211,7 +212,6 @@ def parse_profile(html: str) -> dict:
         "draft_info": draft, "draft_year": two_digit_year(draft),
         "join_info": join, "join_year": two_digit_year(join),
         "team_name": _clean(team_el.get_text()) if team_el else None,
-        "is_retired": is_retired,
     }
 
 

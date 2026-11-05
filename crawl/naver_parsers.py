@@ -57,9 +57,11 @@ def final_inning(status_info: Any) -> int | None:
 
 
 def playable(game: dict, team: str | None = None, rounds: tuple[str, ...] = ("kbo_r",)) -> bool:
+    """끝난 경기인가: statusInfo 가 'N회…' 이거나 statusCode 가 RESULT (취소 제외)"""
     if rounds and game.get("roundCode") not in rounds:
         return False
-    if game.get("cancel") or final_inning(game.get("statusInfo")) is None:
+    finished = final_inning(game.get("statusInfo")) is not None or game.get("statusCode") == "RESULT"
+    if game.get("cancel") or not finished:
         return False
     return team is None or team in (game.get("homeTeamCode"), game.get("awayTeamCode"))
 

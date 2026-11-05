@@ -15,6 +15,8 @@ def test_game_id_and_schedule_filters():
     assert final_inning("12회말") == 12 and final_inning("경기취소") is None
     assert playable(SCHEDULE_GAME, "OB") and not playable(SCHEDULE_GAME, "LG")
     assert not playable({**SCHEDULE_GAME, "roundCode": "kbo_e"})  # 시범경기 제외
+    assert playable({**SCHEDULE_GAME, "statusInfo": "경기종료", "statusCode": "RESULT"})
+    assert not playable({**SCHEDULE_GAME, "statusInfo": "경기취소", "statusCode": "CANCEL", "cancel": True})
 
 
 def test_pitch_rows():
@@ -38,3 +40,21 @@ def test_plate_z_physics():
     z = plate_z({"y0": 50, "vy0": -130, "ay": 26, "z0": 5.6, "vz0": -6, "az": -15})
     assert 2.0 < z < 3.5
     assert plate_z({"y0": 50}) is None
+
+
+def test_fetch_game_uses_inn_when_status_has_no_inning(tmp_path, monkeypatch):
+    """statusInfo 에 이닝이 없으면 1회 응답의 inn(마지막 이닝)만큼 받는다. 받은 경기는 다시 받지 않는다."""
+    import crawl.naver_relay as nr
+    calls = []
+
+    def fake_api_get(session, path, **params):
+        calls.append(params.get("inning"))
+        return {"textRelayData": {"inn": 11, "textRelays": []}}
+
+    monkeypatch.setattr(nr, "api_get", fake_api_get)
+    monkeypatch.setattr(nr, "RAW", tmp_path)
+    game = {**SCHEDULE_GAME, "statusInfo": "경기종료", "statusCode": "RESULT"}
+    innings = nr.fetch_game(None, 2025, game)
+    assert calls == list(range(1, 12)) and sorted(innings) == list(range(1, 12))
+    nr.fetch_game(None, 2025, game)          # 이어받기: 파일이 있으면 요청하지 않음
+    assert len(calls) == 11

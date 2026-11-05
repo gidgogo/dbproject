@@ -76,7 +76,11 @@ def fetch_game(session: PoliteSession, season: int, game: dict) -> dict[int, dic
     if path.exists():
         return {int(k): v for k, v in json.loads(path.read_text(encoding="utf-8")).items()}
     innings = {}
-    for inn in range(1, (final_inning(game.get("statusInfo")) or 9) + 1):
+    first = api_get(session, f"/schedule/games/{game['gameId']}/relay", inning=1)
+    innings[1] = first.get("textRelayData") or {}
+    # 마지막 이닝: 일정의 statusInfo('12회말') → 없으면 1회 응답의 inn(현재·마지막 이닝) → 없으면 9
+    last = final_inning(game.get("statusInfo")) or int(innings[1].get("inn") or 9)
+    for inn in range(2, last + 1):
         res = api_get(session, f"/schedule/games/{game['gameId']}/relay", inning=inn)
         innings[inn] = res.get("textRelayData") or {}
     save_text(path, json.dumps(innings, ensure_ascii=False))

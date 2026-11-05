@@ -125,9 +125,8 @@ def test_profile_parsing():
     assert (p["height_cm"], p["weight_kg"]) == (190, 86)
     assert p["signing_bonus_10k"] == 7000 and p["salary_10k_krw"] == 2800
     assert p["draft_year"] == 2017 and p["join_year"] == 2019
-    assert p["is_retired"] is False
-    retired = html.replace("playerProfile_", "ucPlayerProfile_")
-    assert parse_profile(retired)["is_retired"] is True
+    retired = html.replace("playerProfile_", "ucPlayerProfile_")  # 은퇴·퓨처스 페이지 접두어
+    assert parse_profile(retired)["player_name"] == "가상선수"
     assert parse_profile("<html></html>") == {}
 
 
@@ -149,3 +148,23 @@ def test_team_rank_and_gamelog():
     daily = """<table><thead><tr><th>3월</th><th>상대</th></tr></thead><tbody>
 <tr><td>03.22</td><td>KT</td></tr><tr><td>03.23</td><td>KT</td></tr></tbody></table>"""
     assert parse_gamelog_dates(daily, 2025) == ["2025-03-22", "2025-03-23"]
+
+
+def test_profile_fallback_to_retire_page(tmp_path, monkeypatch):
+    """현역 타자·투수 페이지에 프로필이 없으면 은퇴 페이지로 넘어가고, 은퇴 여부는 URL로 정한다"""
+    import crawl.kbo_profiles as kp
+    profile = ('<span id="cphContents_cphContents_cphContents_ucPlayerProfile_lblName">가상은퇴선수</span>'
+               '<span id="cphContents_cphContents_cphContents_ucPlayerProfile_lblBirthday">1980년 01월 02일</span>')
+    asked = []
+
+    class S:
+        def get(self, url):
+            asked.append(url)
+            return type("R", (), {"text": profile if "Retire/Hitter" in url else "<html>없음</html>"})
+
+    monkeypatch.setattr(kp, "RAW_DIR", tmp_path)
+    prof, url = kp.fetch_one(S(), 123, "hitter")
+    assert [u.split("?")[0].split("/")[-2] + "/" + u.split("?")[0].split("/")[-1] for u in asked] == [
+        "HitterDetail/Basic.aspx", "PitcherDetail/Basic.aspx", "Retire/Hitter.aspx"]
+    assert prof["player_name"] == "가상은퇴선수" and prof["is_retired"] is True
+    assert prof["birth_date"] == "1980-01-02"
