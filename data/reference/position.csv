@@ -1,0 +1,13 @@
+position_code,position_name,position_group
+1,투수,P
+2,포수,C
+3,1루수,IF
+4,2루수,IF
+5,3루수,IF
+6,유격수,IF
+7,좌익수,OF
+8,중견수,OF
+9,우익수,OF
+D,지명타자,DH
+H,대타,SUB
+R,대주자,SUB

@@ -1,0 +1,12 @@
+pitch_type_ko,statcast_code,name_en,pitch_group
+직구,FF,4-Seam Fastball,FASTBALL
+투심,SI,Sinker (Two-Seam),FASTBALL
+싱커,SI,Sinker,FASTBALL
+커터,FC,Cutter,FASTBALL
+슬라이더,SL,Slider,BREAKING
+스위퍼,ST,Sweeper,BREAKING
+커브,CU,Curveball,BREAKING
+슬러브,SV,Slurve,BREAKING
+체인지업,CH,Changeup,OFFSPEED
+포크,FO,Forkball/Splitter,OFFSPEED
+너클볼,KN,Knuckleball,OTHER
