@@ -1,0 +1,2 @@
+season,team_id,player_id,name,games,wins,losses,saves,holds,outs_recorded,hits_allowed,home_runs_allowed,walks,hbp,strikeouts,runs_allowed,earned_runs,batters_faced,pitches,complete_games,shutouts,quality_starts,blown_saves,era,whip
+2025,WO,900211,WO가상투수갑,3,0,2,0,0,65,8,2,2,0,23,6,6,82,313,1,0,2,0,2.49,1.02

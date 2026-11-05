@@ -296,7 +296,7 @@ class Converter:
             *[f"| {k} | {v} |" for k, v in r.match_methods.most_common()],
             "", "## 생성 행 수", "", "| 테이블 | 행 |", "|---|---:|",
             *[f"| {t} | {len(self.rows[t])} |" for t in COLUMNS],
-            "", "## 투수 결정(decision) 분포", "",
+            "", "## 투수 결정(decision) 분포 (보정 전 원본 값)", "",
             " / ".join(f"{k}: {v}" for k, v in sorted(r.decision_counts.items())) or "(없음)",
             "",
             f"- 승패 결정이 의심스러운 경기: {len(r.decision_suspect_games)}경기"
