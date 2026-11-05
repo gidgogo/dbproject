@@ -55,6 +55,21 @@ def loaded_db(tmp_path_factory):
     psql_file(ROOT / "erd/ddl/07_load_data.sql", cwd=work)
     # 같은 파일을 두 번 적재해도 결과가 같아야 한다(재실행 안전)
     psql_file(ROOT / "erd/ddl/07_load_data.sql", cwd=work)
+
+    # 네이버 투구(가상 문자중계) → CSV → 적재
+    sys.path.insert(0, str(ROOT))
+    sys.path.insert(0, str(ROOT / "tests" / "fixtures"))
+    from crawl.common import write_csv
+    from crawl.naver_relay import COLS, IdResolver, to_csv_rows
+    from etl.player_mapper import PlayerMapper
+    from naver_relay_synthetic import INNINGS, SCHEDULE_GAME
+    mapper = PlayerMapper.from_files(fx / "data/player_season_team.csv")
+    resolver = IdResolver(2025, mapper, set())  # pcode 직접 매칭 대신 이름 매칭 경로를 시험
+    pitches_csv = work / "pitches_2025_OB.csv"
+    write_csv(pitches_csv, to_csv_rows(SCHEDULE_GAME, INNINGS, resolver), COLS)
+    subprocess.run([sys.executable, str(ROOT / "etl/pitches_to_tables.py"), str(pitches_csv),
+                    "--out", str(load / "pitch.csv")], check=True, capture_output=True)
+    psql_file(ROOT / "erd/ddl/08_load_pitch.sql", cwd=work)
     return json.loads((fx / "raw_games.json").read_text(encoding="utf-8"))
 
 
@@ -140,3 +155,17 @@ def test_cascade_delete_game(loaded_db):
          "do $$ begin if exists (select 1 from batter_game where game_id = '20250102_OBWO0') "
          "or exists (select 1 from plate_appearance where game_id = '20250102_OBWO0') "
          "then raise exception 'cascade 실패'; end if; end $$; rollback;")
+
+
+def test_pitch_views(loaded_db):
+    assert rows("select count(*) from pitch") == [["7"]]
+    # WO가상투수갑: 직구 3(볼·타격·볼 → 스윙 1, 헛스윙 0), 슬라이더 1(루킹), 포크 1(헛스윙)
+    r = rows("select pitch_type_ko, pitches, usage_pct, avg_speed_kmh, whiff_pct from v_pitch_mix "
+             "where pitcher_id = 900211 order by pitches desc, pitch_type_ko")
+    assert r == [["직구", "3", "60.0", "145.0", "0.0"], ["슬라이더", "1", "20.0", "132.0", ""],
+                 ["포크", "1", "20.0", "130.0", "100.0"]]
+    # 대타 타석의 투구는 대타(900103)에게 기록
+    assert rows("select batter_id from pitch where at_bat_no = 2 and pitch_no = 2") == [["900103"]]
+    # 존 구역: 좌표 -0.9ft 는 존 밖(왼쪽), 0.2ft 는 존 안
+    r = rows("select pitch_seq, zone from v_pitch_detail where pitch_seq in (1, 2) order by pitch_seq")
+    assert r[0][1] in ("11", "13") and 1 <= int(r[1][1]) <= 9
