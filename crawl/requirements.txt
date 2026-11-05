@@ -1,0 +1,7 @@
+# 크롤러·변환기 실행에 필요한 패키지 (맥 ~/Desktop/kbo-env 에는 kbodata 설치 때 대부분 들어 있음)
+requests>=2.28
+beautifulsoup4>=4.11
+lxml>=4.9
+pandas>=1.5          # crawl 은 안 쓰지만 kbodata 가 사용
+# 개발·테스트
+pytest>=7

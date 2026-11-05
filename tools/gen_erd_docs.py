@@ -300,7 +300,7 @@ def main() -> int:
     (ROOT / "docs/report/09_domain_usage.md").write_text(gen_domain_usage(cols, domains), encoding="utf-8")
     (ROOT / "docs/report/08_glossary_terms.md").write_text(gen_terms(cols), encoding="utf-8")
     print(f"테이블 {len(tables)}개, FK {len(fks)}개 → erd/kbo_erd.dbml, erd/erd_logical.mmd, "
-          "docs/report/10_table_spec.md, docs/report/09_domain_usage.md")
+          "docs/report/10_table_spec.md, 09_domain_usage.md, 08_glossary_terms.md")
     return 0
 
 

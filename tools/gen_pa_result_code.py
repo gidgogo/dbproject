@@ -124,9 +124,9 @@ def build(pairs: list[tuple[str, int]]) -> list[dict]:
     for code in sorted(by_code):
         names = by_code[code]
         name = names[0]
-        type_code, type_name, *_ = classify(code)
+        type_code = classify(code)[0]
         if code == 7226:  # '3삼중' = 삼중살
-            type_code, type_name = "TRIPLE_PLAY", "삼중살"
+            type_code = "TRIPLE_PLAY"
         direction = split_direction(name)
         fielders = [FIELDER[c] for c in direction if c in FIELDER]
         if type_code in ("STRIKEOUT", "STRIKEOUT_NOT_OUT", "WALK", "HIT_BY_PITCH",
