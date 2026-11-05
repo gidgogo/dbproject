@@ -158,7 +158,7 @@ COMMENT ON COLUMN player_salary.source_text    IS '연봉원문: 상세 페이�
 CREATE TABLE game (
     game_id          d_game_id    NOT NULL,
     game_date        date         NOT NULL,
-    season           smallint     GENERATED ALWAYS AS (EXTRACT(YEAR FROM game_date)::smallint) STORED,
+    season           smallint     NOT NULL GENERATED ALWAYS AS (EXTRACT(YEAR FROM game_date)::smallint) STORED,
     away_team_id     d_team_id    NOT NULL,
     home_team_id     d_team_id    NOT NULL,
     doubleheader_no  smallint     NOT NULL DEFAULT 0,
