@@ -30,7 +30,7 @@ from pathlib import Path
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from crawl.aspnet import PostbackClient, form_fields, find_name, select_options  # noqa: E402
+from crawl.aspnet import PostbackClient, form_fields, find_name, select_options, selected_value  # noqa: E402
 from crawl.common import (DATA, RAW, Checkpoint, PoliteSession, log, read_csv, save_text,  # noqa: E402
                           season_list, setup_logging, upsert_csv, write_csv)
 from crawl.kbo_parsers import (HITTER_COLUMNS, PITCHER_COLUMNS, ip_to_outs, pager_pages,  # noqa: E402
@@ -58,7 +58,19 @@ PIT_COLS = ["season", "team_id", "player_id", "name", "games", "wins", "losses",
             "runs_allowed", "earned_runs", "batters_faced", "pitches", "complete_games", "shutouts",
             "quality_starts", "blown_saves", "era", "whip", "opp_avg", "wild_pitches", "balks", "crawled_at"]
 UNIT_COLS = ["season", "team_id", "player_id", "name", "team_name", "detail_kind", "crawled_at",
-             *sorted(set(HITTER_COLUMNS.values()) | set(PITCHER_COLUMNS.values()) - {"name", "team_name"})]
+             *sorted((set(HITTER_COLUMNS.values()) | set(PITCHER_COLUMNS.values())) - {"name", "team_name"})]
+
+
+def select_regular_season(client: PostbackClient, season: int) -> None:
+    """시리즈를 먼저 바꾼다. 한국시리즈 상태에서 Basic2 연도를 먼저 바꾸면 KBO가 에러를 반환한다."""
+    if find_name(form_fields(client.html), "ddlSeries$ddlSeries"):
+        if selected_value(client.html, "ddlSeries$ddlSeries") != "0":
+            client.postback("ddlSeries$ddlSeries", {"ddlSeries$ddlSeries": "0"})
+    client.postback("ddlSeason$ddlSeason", {"ddlSeason$ddlSeason": str(season)})
+    if selected_value(client.html, "ddlSeason$ddlSeason") != str(season):
+        raise RuntimeError(f"요청 시즌 {season}이 선택되지 않았습니다")
+    if selected_value(client.html, "ddlSeries$ddlSeries") not in (None, "0"):
+        raise RuntimeError("정규시즌 선택이 유지되지 않았습니다")
 
 
 def team_options(html: str, ref: Reference, season: int) -> list[tuple[str, str]]:
@@ -87,22 +99,34 @@ def sort_by_games(client: PostbackClient) -> bool:
 def collect_pages(client: PostbackClient, colmap: dict, raw_prefix: Path) -> list[dict]:
     """현재 화면(1페이지)부터 마지막 페이지까지 행을 모은다."""
     rows, seen_ids, page = [], set(), 1
+    advertised_page = False
     while page <= MAX_PAGES:
         save_text(raw_prefix.with_name(f"{raw_prefix.name}_p{page}.html"), client.html)
-        _, page_rows = parse_record_table(client.html, colmap)
+        headers, page_rows = parse_record_table(client.html, colmap)
+        if "선수명" not in headers:
+            raise RuntimeError(f"{raw_prefix}: {page}페이지에 선수 기록 표가 없습니다")
         new = [r for r in page_rows if r["player_id"] not in seen_ids]
         if not new:
+            if page > 1 and advertised_page:
+                raise RuntimeError(f"{raw_prefix}: 안내된 {page}페이지에 새 선수 행이 없습니다")
+            if page == 1 and "기록이 없습니다" not in client.html:
+                raise RuntimeError(f"{raw_prefix}: 첫 페이지에서 선수 행을 읽지 못했습니다")
+            if page_rows:
+                raise RuntimeError(f"{raw_prefix}: {page}페이지에 이전 선수만 반복됩니다")
             break
         rows += new
         seen_ids |= {r["player_id"] for r in new}
         nxt = page + 1
-        if nxt in pager_pages(client.html):
+        advertised_page = nxt in pager_pages(client.html)
+        if advertised_page:
             client.postback(f"ucPager$btnNo{nxt}")
         elif find_name(form_fields(client.html), "hfPage") and len(page_rows) >= 20:
             client.postback("lbtnOrderBy", {"hfPage": str(nxt), "hfOrderByCol": SORT_COLUMN, "hfOrderBy": "DESC"})
         else:
             break
         page = nxt
+    else:
+        raise RuntimeError(f"{raw_prefix}: 최대 페이지 수 {MAX_PAGES} 초과 (완료 처리하지 않음)")
     return rows
 
 
@@ -117,27 +141,41 @@ def crawl(seasons: list[int], teams_filter: list[str] | None, kinds: list[str], 
                 path = PAGES[kind][page_name]
                 client = PostbackClient(session, path)
                 client.get()
-                season_values = {"ddlSeason$ddlSeason": str(season)}
-                if find_name(form_fields(client.html), "ddlSeries$ddlSeries"):
-                    season_values["ddlSeries$ddlSeries"] = "0"  # 정규시즌
-                client.postback("ddlSeason$ddlSeason", season_values)
+                select_regular_season(client, season)
                 if teams_filter == ["ALL"]:
                     units = [("", "ALL")]
                 else:
                     units = [(v, c) for v, c in team_options(client.html, ref, season)
                              if not teams_filter or c in teams_filter]
                     if not units:
-                        log.error("%s %s: 팀 목록을 찾지 못함", season, path)
+                        raise RuntimeError(f"{season} {path}: 요청한 팀 목록을 찾지 못함")
                 for value, code in units:
                     key = f"{season}|{code}|{kind}|{page_name}"
                     if key in ckpt:
                         continue
                     log.info("수집: %s", key)
-                    client.postback("ddlTeam$ddlTeam", {"ddlSeason$ddlSeason": str(season),
-                                                        "ddlTeam$ddlTeam": value})
-                    sort_by_games(client)
                     raw_prefix = OUT_DIR / str(season) / f"{code}_{kind}_{page_name}"
-                    rows = collect_pages(client, colmap, raw_prefix)
+                    for attempt in range(3):
+                        try:
+                            if attempt:
+                                client = PostbackClient(session, path)
+                                client.get()
+                                select_regular_season(client, season)
+                            client.postback("ddlTeam$ddlTeam", {"ddlSeason$ddlSeason": str(season),
+                                                                "ddlTeam$ddlTeam": value})
+                            if not sort_by_games(client):
+                                raise RuntimeError("전체 선수 조회를 위한 경기수 정렬 실패")
+                            if (selected_value(client.html, "ddlSeason$ddlSeason") != str(season)
+                                    or selected_value(client.html, "ddlTeam$ddlTeam") != value):
+                                raise RuntimeError("요청한 시즌·팀 선택이 유지되지 않았습니다")
+                            rows = collect_pages(client, colmap, raw_prefix)
+                            if not rows and "기록이 없습니다" not in client.html:
+                                raise RuntimeError("빈 수집 결과를 완료 처리할 수 없습니다")
+                            break
+                        except (RuntimeError, KeyError) as exc:
+                            if attempt == 2:
+                                raise
+                            log.warning("%s: %s → 새 폼에서 재시도 (%d/3)", key, exc, attempt + 2)
                     now = datetime.now().isoformat(timespec="seconds")
                     for r in rows:
                         r.update(season=season, crawled_at=now,
@@ -200,12 +238,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
     setup_logging(args.verbose)
-    if not args.merge_only:
-        teams = [t.strip() for t in args.teams.split(",") if t.strip()] or None
-        crawl(season_list(args.seasons), teams, args.kinds.split(","), args.pages.split(","), Reference.load())
-    for name, n in merge().items():
-        log.info("%-20s %6d행 → data/%s.csv", name, n, name)
-    return 0
+    status = 0
+    try:
+        if not args.merge_only:
+            teams = [t.strip() for t in args.teams.split(",") if t.strip()] or None
+            crawl(season_list(args.seasons), teams, args.kinds.split(","), args.pages.split(","), Reference.load())
+    except (RuntimeError, KeyError) as exc:
+        log.error("수집 미완료: %s (성공한 단위는 보존, 같은 명령으로 재시도)", exc)
+        status = 1
+    finally:
+        for name, n in merge().items():
+            log.info("%-20s %6d행 → data/%s.csv", name, n, name)
+    return status
 
 
 if __name__ == "__main__":

@@ -70,6 +70,10 @@ class PoliteSession:
                 if r.status_code >= 500 or r.status_code == 429:
                     raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
                 r.raise_for_status()
+                # KBO 오류 페이지는 charset 헤더 없이 UTF-8 HTML을 주기도 한다.
+                # requests의 ISO-8859-1 기본값으로 읽으면 에러 문구가 깨진다.
+                if "text/html" in r.headers.get("Content-Type", "") and "charset=" not in r.headers.get("Content-Type", "").lower():
+                    r.encoding = "utf-8"
                 return r
             except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
                 self._last = time.monotonic()

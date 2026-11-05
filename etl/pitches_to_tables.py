@@ -19,7 +19,7 @@ COLS = ["game_id", "pitch_seq", "inning", "half", "at_bat_no", "pitch_no", "pitc
 
 
 def convert(inputs: list[Path], out: Path, known_pitch_types: set[str]) -> dict[str, int]:
-    kept, dropped_ids, unknown_type = [], 0, 0
+    kept, dropped_ids, unknown_type, duplicates = {}, 0, 0, 0
     for path in inputs:
         with open(path, encoding="utf-8", newline="") as f:
             for r in csv.DictReader(f):
@@ -31,13 +31,21 @@ def convert(inputs: list[Path], out: Path, known_pitch_types: set[str]) -> dict[
                     r["pitch_type_ko"] = ""  # 기준표(data/reference/pitch_type.csv)에 추가하면 다시 살릴 수 있음
                 if r.get("speed_kmh") and not (50 <= float(r["speed_kmh"]) <= 175):
                     r["speed_kmh"] = ""
-                kept.append({c: r.get(c, "") for c in COLS})
+                row = {c: r.get(c, "") for c in COLS}
+                key = (row["game_id"], row["pitch_seq"])
+                if key in kept:
+                    if kept[key] != row:
+                        raise ValueError(f"같은 투구의 내용이 서로 다릅니다: {key} ({path})")
+                    duplicates += 1
+                    continue
+                kept[key] = row
     out.parent.mkdir(parents=True, exist_ok=True)
     with open(out, "w", newline="", encoding="utf-8") as f:
         w = csv.DictWriter(f, fieldnames=COLS)
         w.writeheader()
-        w.writerows(kept)
-    return {"kept": len(kept), "dropped_no_player_id": dropped_ids, "unknown_pitch_type": unknown_type}
+        w.writerows(kept.values())
+    return {"kept": len(kept), "dropped_no_player_id": dropped_ids,
+            "unknown_pitch_type": unknown_type, "duplicates_removed": duplicates}
 
 
 def main(argv: list[str] | None = None) -> int:

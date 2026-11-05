@@ -22,7 +22,7 @@ TEAM_ALIASES = {
     "LG": "LG",
     "KIA": "HT", "기아": "HT",
     "SK": "SK", "SSG": "SK",
-    "우리": "WO", "서울": "WO", "히어로즈": "WO", "넥센": "WO", "키움": "WO", "": "WO",
+    "우리": "WO", "서울": "WO", "히어로즈": "WO", "넥센": "WO", "키움": "WO",
     "NC": "NC",
     "KT": "KT", "kt": "KT",
 }
@@ -49,6 +49,7 @@ class Reference:
             ref.team_ids.add(r["team_id"])
         for r in read_csv(ref_dir / "team_season.csv"):
             ref.team_by_season_name[(int(r["season"]), r["short_name"])] = r["team_id"]
+            ref.team_by_season_name[(int(r["season"]), r["team_name"])] = r["team_id"]
         for r in read_csv(ref_dir / "stadium_place_map.csv"):
             to = int(r["to_season"]) if r["to_season"] else None
             ref.place_rules.append((r["place"], int(r["from_season"]), to, int(r["stadium_id"])))

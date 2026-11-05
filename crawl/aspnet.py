@@ -101,7 +101,11 @@ def selected_value(html: str, suffix: str) -> str | None:
 
 
 def looks_like_error_page(html: str) -> bool:
-    return len(html) < 3000 or "<title>에러" in html or "Runtime Error" in html
+    soup = soup_of(html)
+    title = soup.title.get_text(strip=True) if soup.title else ""
+    return (soup.find("form") is None
+            or bool(re.search(r"에러|오류|error", title, re.I))
+            or "Runtime Error" in html)
 
 
 class PostbackClient:
@@ -113,7 +117,10 @@ class PostbackClient:
         self.html = ""
 
     def get(self) -> str:
-        self.html = self.session.get(self.path).text
+        html = self.session.get(self.path).text
+        if looks_like_error_page(html):
+            raise RuntimeError(f"정상적인 폼 페이지가 아닙니다: {self.path}")
+        self.html = html
         return self.html
 
     def postback(self, target_suffix: str | None, overrides_by_suffix: dict[str, str] | None = None,

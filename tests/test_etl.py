@@ -1,5 +1,6 @@
 """etl/ 순수 함수 단위 테스트 (네트워크·DB 불필요)"""
 import csv
+import pytest
 import sys
 from pathlib import Path
 
@@ -69,6 +70,10 @@ def test_reference_team_and_stadium():
     assert ref.stadium_id("대구", 2015) == 3
     assert ref.stadium_id("대구", 2016) == 4
     assert ref.stadium_id("없는구장", 2025) is None
+    assert ref.team_id("두산 베어스", 2026) == "OB"
+    assert ref.team_id("SK 와이번스", 2020) == "SK"
+    assert ref.team_id("SSG 랜더스", 2025) == "SK"
+    assert ref.team_id("", 2025) is None
 
 
 def test_player_mapper_rules():
@@ -105,3 +110,21 @@ def test_pa_result_reference_is_consistent():
     assert by_code[1300]["result_type"] == "HOME_RUN"
     assert by_code[5005]["result_type"] == "SAC_FLY"
     assert types["SAC_FLY"]["is_at_bat"] == "0" and types["REACHED_ON_ERROR"]["is_at_bat"] == "1"
+
+
+def test_overlapping_pitch_files_are_deduplicated_and_conflicts_rejected(tmp_path):
+    from etl.pitches_to_tables import COLS, convert
+    from crawl.common import write_csv, read_csv
+    row = {"game_id": "20250601_OBWO0", "pitch_seq": "1", "pitcher_id": "10", "batter_id": "20",
+           "pitch_type_ko": "직구", "speed_kmh": "145"}
+    a, b, out = tmp_path / "OB.csv", tmp_path / "WO.csv", tmp_path / "pitch.csv"
+    write_csv(a, [row], COLS)
+    write_csv(b, [row], COLS)
+    stats = convert([a, b], out, {"직구"})
+    assert stats["kept"] == 1 and stats["duplicates_removed"] == 1
+    assert len(read_csv(out)) == 1
+    before = out.read_bytes()
+    write_csv(b, [{**row, "speed_kmh": "146"}], COLS)
+    with pytest.raises(ValueError, match="서로 다릅니다"):
+        convert([a, b], out, {"직구"})
+    assert out.read_bytes() == before

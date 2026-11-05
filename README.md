@@ -36,7 +36,21 @@ psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/00_create_all.sql
 python -m pytest tests -q
 ```
 
+이미 이전 버전의 DB를 만들었다면, 데이터를 삭제하지 않고 수정된 뷰를 적용합니다:
+
+```bash
+psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/09_upgrade_views.sql
+```
+
+경기 재적재는 기존 네이버 투구를 보존합니다. 투구 CSV는 여러 팀의 맞대결 중복을 제거하며,
+같은 투구의 내용이 다르면 임의로 고르지 않고 오류를 알립니다.
+
 크롤링·적재 순서는 [crawl/README.md](crawl/README.md) 에 있습니다.
+
+2026-11-06 수정 검증: PostgreSQL 16.2에서 회귀 테스트를 포함해 검증했습니다.
+실제 KBO 2025 두산 타자 Basic1·2 각 46행, 투수 Basic1·2 각 28행을 수집하고,
+선수 63명·공식 타자 기록 46행·투수 기록 28행의 DB 적재를 확인했습니다.
+전체 시즌 박스스코어 대조와 네이버 실제 중계 수집은 아직 검증하지 않았습니다.
 
 ## 산출물 현황 (2026-11-05)
 

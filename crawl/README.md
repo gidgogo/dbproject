@@ -42,6 +42,9 @@ python crawl/kbo_records.py --seasons 2025
 
 결과: `data/player_season_team.csv`(매핑표 → 배인표), `data/season_batting.csv`, `data/season_pitching.csv`.
 중간에 끊기면 **같은 명령을 다시** 실행하면 끝난 (시즌, 팀) 단위는 건너뛴다(`data/raw/kbo/records/_done.json`).
+정규시즌을 먼저 선택한 뒤 연도를 바꾼다(Basic2의 한국시리즈 → 과거 연도 전환 오류 방지).
+정렬 실패·표 누락·같은 페이지 반복은 완료 처리하지 않는다. 단위 수집 오류는 새 폼에서 최대 3회 시도하며,
+실패 시 종료 코드 1을 반환하고 이미 성공한 단위의 CSV는 보존한다.
 
 ## 3. 선수 상세 (2-2 ②)
 
@@ -115,6 +118,9 @@ python etl/kbodata_to_tables.py ~/Desktop/data/2025/*.json
 python etl/pitches_to_tables.py
 ```
 
+여러 팀 파일에 같은 경기가 있어도 동일한 투구는 한 번만 적재한다. 같은 투구 키의 내용이 다르면
+변환을 중단하므로 원본을 비교하고 해당 경기의 수집 결과를 정리한 뒤 다시 실행한다.
+
 ```bash
 psql -d kbo -f erd/ddl/07_load_data.sql
 ```
@@ -122,6 +128,9 @@ psql -d kbo -f erd/ddl/07_load_data.sql
 ```bash
 psql -d kbo -f erd/ddl/08_load_pitch.sql
 ```
+
+`07_load_data.sql`을 다시 실행해도 기존 투구는 유지된다. 스코어보드에 홈·원정 두 행이 없으면
+적재 전체를 취소한다. 기존 DB의 계산 뷰 수정은 `erd/ddl/09_upgrade_views.sql`로 적용한다.
 
 ## 크롤링 예의 (모든 스크립트 공통, crawl/common.py)
 

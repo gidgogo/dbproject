@@ -33,7 +33,12 @@ def rows(sql: str) -> list[list[str]]:
 
 
 @pytest.fixture(scope="module")
-def loaded_db(tmp_path_factory):
+def load_work(tmp_path_factory):
+    return tmp_path_factory.mktemp("load")
+
+
+@pytest.fixture(scope="module")
+def loaded_db(load_work):
     if not shutil.which("psql"):
         pytest.skip("psql 없음")
     probe = subprocess.run(["psql", "-X", "-Atc", "select 1", "-d", "postgres"], capture_output=True, text=True)
@@ -43,7 +48,7 @@ def loaded_db(tmp_path_factory):
     psql(f"CREATE DATABASE {DB}", db="postgres")
     psql_file(ROOT / "erd/ddl/00_create_all.sql", cwd=ROOT)
 
-    work = tmp_path_factory.mktemp("load")
+    work = load_work
     load = work / "data" / "load"
     fx = ROOT / "tests/fixtures/synthetic"
     subprocess.run([sys.executable, str(ROOT / "tests/fixtures/make_synthetic.py")], check=True)
@@ -67,7 +72,9 @@ def loaded_db(tmp_path_factory):
     resolver = IdResolver(2025, mapper, set())  # pcode 직접 매칭 대신 이름 매칭 경로를 시험
     pitches_csv = work / "pitches_2025_OB.csv"
     write_csv(pitches_csv, to_csv_rows(SCHEDULE_GAME, INNINGS, resolver), COLS)
-    subprocess.run([sys.executable, str(ROOT / "etl/pitches_to_tables.py"), str(pitches_csv),
+    other_team_csv = work / "pitches_2025_WO.csv"
+    shutil.copyfile(pitches_csv, other_team_csv)
+    subprocess.run([sys.executable, str(ROOT / "etl/pitches_to_tables.py"), str(pitches_csv), str(other_team_csv),
                     "--out", str(load / "pitch.csv")], check=True, capture_output=True)
     psql_file(ROOT / "erd/ddl/08_load_pitch.sql", cwd=work)
     return json.loads((fx / "raw_games.json").read_text(encoding="utf-8"))
@@ -169,3 +176,76 @@ def test_pitch_views(loaded_db):
     # 존 구역: 좌표 -0.9ft 는 존 밖(왼쪽), 0.2ft 는 존 안
     r = rows("select pitch_seq, zone from v_pitch_detail where pitch_seq in (1, 2) order by pitch_seq")
     assert r[0][1] in ("11", "13") and 1 <= int(r[1][1]) <= 9
+
+
+def test_reloading_box_scores_preserves_pitches(loaded_db, load_work):
+    before = rows("select row_to_json(p)::text from pitch p order by game_id, pitch_seq")
+    events = rows("select count(*) from game_event")
+    umpires = rows("select count(*) from game_umpire")
+    psql_file(ROOT / "erd/ddl/07_load_data.sql", cwd=load_work)
+    assert before and rows("select row_to_json(p)::text from pitch p order by game_id, pitch_seq") == before
+    assert rows("select count(*) from game_event") == events
+    assert rows("select count(*) from game_umpire") == umpires
+
+
+def test_official_rates_are_weighted_across_teams(loaded_db):
+    got = rows("""begin;
+        update season_batting_official set at_bats=10,hits=1,avg=.100 where player_id=900101;
+        insert into season_batting_official(player_id,season,team_id,at_bats,hits,avg)
+          values(900101,2025,'WO',10,5,.500);
+        update season_pitching_official set outs_recorded=27,earned_runs=1,era=1.00 where player_id=900211;
+        insert into season_pitching_official(player_id,season,team_id,outs_recorded,earned_runs,era)
+          values(900211,2025,'OB',54,6,3.00);
+        select avg_off from v_compare_batting_official where player_id=900101;
+        select era_off from v_compare_pitching_official where player_id=900211;
+        rollback;""")
+    assert got == [["0.300"], ["2.33"]]
+
+
+def test_missing_team_is_reported(loaded_db):
+    got = rows("""begin;
+        delete from team_game where game_id='20250101_OBWO0' and home_away='H';
+        select game_id from v_check_game_result;
+        rollback;""")
+    assert got == [["20250101_OBWO0"]]
+
+
+def test_standings_use_unrounded_win_percentage(loaded_db):
+    got = rows("""begin;
+        insert into game(game_id,game_date,away_team_id,home_team_id)
+        select to_char(date '2024-03-01'+n,'YYYYMMDD')||'_OBWO0',date '2024-03-01'+n,'OB','WO'
+          from generate_series(1,120) n
+        union all select to_char(date '2024-03-01'+n,'YYYYMMDD')||'_LGHT0',date '2024-03-01'+n,'LG','HT'
+          from generate_series(1,113) n;
+        insert into team_game
+        select game_id,away_team_id,'A',case when game_date-date '2024-03-01' <=
+          case away_team_id when 'OB' then 67 else 63 end then 'W' else 'L' end,0,0,0,0 from game where season=2024
+        union all select game_id,home_team_id,'H',case when game_date-date '2024-03-01' <=
+          case away_team_id when 'OB' then 67 else 63 end then 'L' else 'W' end,0,0,0,0 from game where season=2024;
+        refresh materialized view mv_team_standings;
+        select team_id,rank,win_pct from mv_team_standings where season=2024 and team_id in ('OB','LG') order by rank;
+        rollback;""")
+    assert got == [["OB", "1", "0.558"], ["LG", "2", "0.558"]]
+
+
+def test_view_upgrade_preserves_data_and_is_repeatable(loaded_db):
+    before = rows("select count(*) from pitch")
+    for _ in range(2):
+        psql_file(ROOT / "erd/ddl/09_upgrade_views.sql", cwd=ROOT)
+    assert rows("select count(*) from pitch") == before
+    assert rows("select count(*) from v_game_summary") == [["3"]]
+
+
+def test_incomplete_box_scores_roll_back_without_losing_pitches(loaded_db, load_work, tmp_path):
+    shutil.copytree(load_work / "data", tmp_path / "data")
+    # 경기만 있고 스코어보드·하위 기록이 없는 실패한 수집 결과.
+    for name in ("team_game", "inning_score", "batter_game", "plate_appearance", "pitcher_game",
+                 "game_event", "game_umpire_stage"):
+        path = tmp_path / "data/load" / f"{name}.csv"
+        path.write_text(path.read_text().splitlines()[0] + "\n")
+    before = rows("select count(*) from pitch union all select count(*) from team_game")
+    result = subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", DB,
+                             "-f", str(ROOT / "erd/ddl/07_load_data.sql")],
+                            cwd=tmp_path, capture_output=True, text=True)
+    assert result.returncode != 0 and "팀경기기록" in result.stderr
+    assert rows("select count(*) from pitch union all select count(*) from team_game") == before

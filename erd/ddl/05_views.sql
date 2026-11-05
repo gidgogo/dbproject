@@ -276,7 +276,7 @@ stk AS (  -- 최근 경기부터 결과가 처음 바뀌는 지점까지 = 연�
 ),
 pct AS (
     SELECT a.*, s.streak_len,
-           round(a.wins::numeric / nullif(a.wins + a.losses, 0), 3) AS win_pct
+           a.wins::numeric / nullif(a.wins + a.losses, 0) AS win_pct_raw
     FROM agg a JOIN stk s ON s.season = a.season AND s.team_id = a.team_id
 ),
 ranked AS (
@@ -285,9 +285,9 @@ ranked AS (
            first_value(wins)   OVER w                    AS leader_wins,
            first_value(losses) OVER w                    AS leader_losses
     FROM pct p
-    WINDOW w AS (PARTITION BY season ORDER BY win_pct DESC NULLS LAST)
+    WINDOW w AS (PARTITION BY season ORDER BY win_pct_raw DESC NULLS LAST)
 )
-SELECT season, team_id, rank, games, wins, losses, draws, win_pct,
+SELECT season, team_id, rank, games, wins, losses, draws, round(win_pct_raw, 3) AS win_pct,
        (((leader_wins - wins) + (losses - leader_losses)) / 2.0)::numeric(4,1) AS games_behind,
        runs_scored, runs_allowed, runs_scored - runs_allowed AS run_diff,
        l10_w || '승' || l10_d || '무' || l10_l || '패' AS last10,
@@ -419,12 +419,13 @@ COMMENT ON VIEW v_check_batter_pa IS '검증: 박스스코어 타수·안타 ≠
 CREATE VIEW v_check_game_result AS
 SELECT g.game_id, a.result AS away_result, a.runs AS away_runs, h.result AS home_result, h.runs AS home_runs
 FROM game g
-JOIN team_game a ON a.game_id = g.game_id AND a.home_away = 'A'
-JOIN team_game h ON h.game_id = g.game_id AND h.home_away = 'H'
-WHERE NOT (   (a.result = 'W' AND h.result = 'L' AND a.runs > h.runs)
+LEFT JOIN team_game a ON a.game_id = g.game_id AND a.home_away = 'A'
+LEFT JOIN team_game h ON h.game_id = g.game_id AND h.home_away = 'H'
+WHERE a.game_id IS NULL OR h.game_id IS NULL
+   OR NOT (   (a.result = 'W' AND h.result = 'L' AND a.runs > h.runs)
            OR (a.result = 'L' AND h.result = 'W' AND a.runs < h.runs)
            OR (a.result = 'D' AND h.result = 'D' AND a.runs = h.runs));
-COMMENT ON VIEW v_check_game_result IS '검증: 승패와 점수가 맞지 않는 경기';
+COMMENT ON VIEW v_check_game_result IS '검증: 홈·원정 기록이 누락되거나 승패와 점수가 맞지 않는 경기';
 
 CREATE VIEW v_check_pitcher_decision AS
 SELECT g.game_id,
@@ -445,7 +446,8 @@ CREATE VIEW v_compare_batting_official AS
 WITH o AS (
     SELECT player_id, season, sum(games) AS games, sum(plate_appearances) AS pa,
            sum(at_bats) AS ab, sum(hits) AS h, sum(home_runs) AS hr, sum(rbi) AS rbi,
-           sum(walks) AS bb, sum(strikeouts) AS so, max(avg) AS avg
+           sum(walks) AS bb, sum(strikeouts) AS so,
+           round(sum(hits)::numeric / nullif(sum(at_bats), 0), 3) AS avg
     FROM season_batting_official
     GROUP BY player_id, season
 )
@@ -470,7 +472,8 @@ CREATE VIEW v_compare_pitching_official AS
 WITH o AS (
     SELECT player_id, season, sum(games) AS games, sum(wins) AS w, sum(losses) AS l,
            sum(saves) AS sv, sum(holds) AS hld, sum(outs_recorded) AS outs,
-           sum(hits_allowed) AS h, sum(strikeouts) AS so, sum(earned_runs) AS er, max(era) AS era
+           sum(hits_allowed) AS h, sum(strikeouts) AS so, sum(earned_runs) AS er,
+           round(sum(earned_runs) * 27.0 / nullif(sum(outs_recorded), 0), 2) AS era
     FROM season_pitching_official
     GROUP BY player_id, season
 )

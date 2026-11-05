@@ -50,6 +50,9 @@ SELECT * FROM v_compare_team_rank WHERE season = 2025 ORDER BY rank_off;
 
 ## 3. 내부 일관성 (행이 없어야 정상)
 
+`v_check_game_result`는 승패·점수 불일치뿐 아니라 홈·원정 팀 기록 누락도 반환한다.
+직접 SQL로 경기 기록을 수정했다면 먼저 `SELECT fn_refresh_stats();`로 MV를 갱신한다.
+
 ```sql
 SELECT 'team_runs' AS chk, count(*) FROM v_check_team_runs
 UNION ALL SELECT 'team_hits', count(*) FROM v_check_team_hits
