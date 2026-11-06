@@ -4,6 +4,7 @@
 **가상 HTML**이다. 실제 페이지와 맞는지는 맥에서 crawl/probe_kbo.py 로 확인한다.
 """
 import sys
+import pytest
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -168,3 +169,79 @@ def test_profile_fallback_to_retire_page(tmp_path, monkeypatch):
         "HitterDetail/Basic.aspx", "PitcherDetail/Basic.aspx", "Retire/Hitter.aspx"]
     assert prof["player_name"] == "가상은퇴선수" and prof["is_retired"] is True
     assert prof["birth_date"] == "1980-01-02"
+
+
+def test_regular_season_is_selected_before_year():
+    from crawl.kbo_records import select_regular_season
+    regular = record_page([], season="2025")
+    postseason = regular.replace('<option value="0" selected>KBO 정규시즌</option>',
+                                 '<option value="0">정규시즌</option><option value="7" selected>한국시리즈</option>')
+    fake = FakeSession([postseason, regular, regular])
+    client = PostbackClient(fake, "/Record/Player/HitterBasic/Basic2.aspx")
+    client.get()
+    select_regular_season(client, 2025)
+    assert [r["__EVENTTARGET"].split("$")[-1] for r in fake.posts] == ["ddlSeries", "ddlSeason"]
+
+
+def test_http_200_error_page_does_not_replace_valid_form():
+    from crawl.aspnet import looks_like_error_page
+    valid = record_page([])
+    # charset가 잘못 읽힌 실제 KBO 에러 페이지도 폼 부재로 탐지한다.
+    error = '<html><title>ì 에러</title>' + 'x' * 4000 + '</html>'
+    fake = FakeSession([valid, error])
+    client = PostbackClient(fake, "/record")
+    client.get()
+    with pytest.raises(RuntimeError, match="에러 페이지"):
+        client.postback("ddlSeason$ddlSeason", {"ddlSeason$ddlSeason": "2025"})
+    assert client.html == valid
+    assert looks_like_error_page(error)
+
+
+@pytest.mark.parametrize("sorted_ok", [True, False])
+def test_failed_collection_never_marks_checkpoint(tmp_path, monkeypatch, sorted_ok):
+    import crawl.kbo_records as kr
+    from etl.reference import Reference
+    page = record_page([], team="OB")
+    monkeypatch.setattr(kr, "PoliteSession", lambda base: FakeSession([page] * 15))
+    monkeypatch.setattr(kr, "OUT_DIR", tmp_path)
+    monkeypatch.setattr(kr, "sort_by_games", lambda client: sorted_ok)
+    monkeypatch.setattr(kr, "collect_pages", lambda *args: [])
+    with pytest.raises(RuntimeError):
+        kr.crawl([2025], ["OB"], ["hitter"], ["basic1"], Reference.load())
+    assert not (tmp_path / "_done.json").exists()
+    assert not list(tmp_path.glob("*/*.csv"))
+
+
+def test_repeated_page_is_not_silently_truncated(tmp_path):
+    from crawl.kbo_records import collect_pages
+    page = record_page([(100, "가상갑", "두산", "0.3", "10", "40")], team="OB")
+    client = PostbackClient(FakeSession([page, page]), "/record")
+    client.get()
+    with pytest.raises(RuntimeError, match="새 선수|반복"):
+        collect_pages(client, HITTER_COLUMNS, tmp_path / "record")
+
+
+def test_advertised_empty_page_is_not_accepted(tmp_path):
+    from crawl.kbo_records import collect_pages
+    page = record_page([(100, "가상갑", "두산", "0.3", "10", "40")], team="OB")
+    client = PostbackClient(FakeSession([page, record_page([], team="OB")]), "/record")
+    client.get()
+    with pytest.raises(RuntimeError, match="안내된 2페이지"):
+        collect_pages(client, HITTER_COLUMNS, tmp_path / "record")
+
+
+def test_sort_new_team_starts_at_first_page():
+    from crawl.kbo_records import sort_by_games
+    page = record_page([]).replace('</form>', f'<input type="hidden" name="{P}hfPage" value="2" /></form>')
+    fake = FakeSession([page, record_page([])])
+    client = PostbackClient(fake, "/record")
+    client.get()
+    assert sort_by_games(client)
+    assert fake.posts[0][P + "hfPage"] == "1"
+
+
+def test_unregistered_body_measurements_are_missing():
+    from crawl.kbo_parsers import parse_height_weight
+    assert parse_height_weight("0cm/0kg") == (None, None)
+    assert parse_height_weight("190cm/0kg") == (190, None)
+    assert parse_height_weight("0cm/86kg") == (None, 86)

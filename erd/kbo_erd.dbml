@@ -25,12 +25,7 @@ TableGroup "경기 기록 (kbodata)" {
   umpire
   game_umpire
 }
-TableGroup "투구 (네이버 문자중계)" {
-  pitch
-  pitch_type
-  pitch_result
-}
-TableGroup "기록실 공식 기록 (검증용)" {
+TableGroup "KBO 공식 시즌 기록·순위" {
   season_batting_official
   season_pitching_official
   team_rank_official
@@ -79,6 +74,9 @@ Table player [note: '선수: KBO playerId로 식별하는 선수 마스터. 이�
   signing_bonus_10k integer [note: '입단계약금 - 만원 단위 (원화가 아니면 NULL)']
   is_retired boolean [not null, note: '은퇴여부 - 은퇴 선수 페이지에서 수집했으면 true']
   profile_crawled_at timestamptz [note: '프로필수집일시 - 상세 페이지를 받은 시각']
+  current_team_name varchar(60) [note: '현재소속명 - 프로필 수집 시점의 소속 원문. 상무 등 KBO 10개 구단 외 소속도 보존하며 과거 시즌 소속과 구분']
+  current_uniform_no varchar(3) [note: '현재등번호 - 프로필 수집 시점의 등번호. 과거 시즌에 소급하지 않음']
+  profile_source_url text [note: '프로필출처 - KBO playerId가 포함된 상세 페이지 URL']
 }
 
 Table player_season [note: '선수시즌소속: 선수가 어느 시즌에 어느 팀 소속으로 기록을 남겼는지. 시즌 중 이적하면 팀마다 한 행. 이름+팀+시즌 → 선수ID 매핑의 근거'] {
@@ -88,7 +86,7 @@ Table player_season [note: '선수시즌소속: 선수가 어느 시즌에 어�
   name_in_season varchar(30) [not null, note: '시즌표기명 - 그 시즌 기록실 표기 이름 (개명·외국인 이름 축약 대응) [도메인 d_person_name]']
   is_batter boolean [not null, note: '타자기록여부 - 기록실 타자 목록에 있으면 true']
   is_pitcher boolean [not null, note: '투수기록여부 - 기록실 투수 목록에 있으면 true']
-  uniform_no varchar(3) [note: '등번호 - 상세 페이지에서 수집 (현재 시즌만 확인 가능, 과거 시즌은 NULL)']
+  uniform_no varchar(3) [note: '시즌등번호 - 별도 시즌 근거가 있을 때만 입력. 현재 프로필의 등번호는 player.current_uniform_no에 저장']
   indexes {
     (player_id, season, team_id) [pk]
   }
@@ -118,7 +116,7 @@ Table game [note: '경기: 한 경기. 경기ID는 kbodata raw JSON의 id를 그
   start_time time [note: '개시시각 - 경기 시작 시각']
   end_time time [note: '종료시각 - 경기 종료 시각']
   duration_min smallint [note: '경기시간 - 분 단위 (3:05 → 185)']
-  kbo_game_id varchar(13) [note: 'KBO경기ID - KBO·네이버 연동용 G_ID (밑줄 제거, 생성 컬럼). 네이버 gameId = KBO경기ID + 시즌']
+  kbo_game_id varchar(13) [note: 'KBO경기ID - KBO 게임센터 G_ID (밑줄 제거, 생성 컬럼)']
 }
 
 Table team_game [note: '팀경기기록: 경기 스코어보드의 팀별 한 줄 (R H E B)'] {
@@ -248,47 +246,7 @@ Table game_umpire [note: '경기심판: 경기와 심판의 M:N 관계를 푸는
   }
 }
 
-Table pitch_type [note: '구종: 네이버 문자중계 구종 표기와 Statcast 코드 대응'] {
-  pitch_type_ko varchar(10) [not null, pk, note: '구종명 - 네이버 표기 (직구, 슬라이더 ...)']
-  statcast_code char(2) [not null, note: 'Statcast코드 - FF, SL, CH ...']
-  name_en varchar(30) [not null, note: '영문명 - 영문 구종명']
-  pitch_group varchar(10) [not null, note: '구종군 - FASTBALL 직구계열, BREAKING 변화구, OFFSPEED 체인지업 계열, OTHER']
-}
-
-Table pitch_result [note: '투구결과: 네이버 pitchResult 코드'] {
-  pitch_result_code char(1) [not null, pk, note: '투구결과코드 - B 볼, T 스트라이크, S 헛스윙, F 파울, V 번트헛스윙, W 번트파울, H 타격']
-  result_name varchar(20) [not null, note: '투구결과명 - 한글 이름']
-  call_type char(1) [not null, note: '판정구분 - B 볼, S 스트라이크, X 인플레이']
-}
-
-Table pitch [note: '투구: 네이버 문자중계 투구 1개 (구종·구속·카운트·로케이션)'] {
-  game_id varchar(14) [not null, note: '경기ID - 경기(FK). 네이버 gameId에서 변환 [도메인 d_game_id]']
-  pitch_seq integer [not null, note: '투구순번 - 경기 안에서 투구 순서 (1부터)']
-  inning smallint [not null, note: '이닝 - 이닝 [도메인 d_inning]']
-  half char(1) [not null, note: '초말 - T 초(원정 공격), B 말(홈 공격)']
-  at_bat_no smallint [not null, note: '타석순번 - 경기 안에서 타석 순서 (네이버 기준)']
-  pitch_no smallint [not null, note: '타석내투구번호 - 그 타석의 몇 번째 공인지']
-  pitcher_id integer [not null, note: '투수ID - 선수(FK) [도메인 d_player_id]']
-  batter_id integer [not null, note: '타자ID - 선수(FK) [도메인 d_player_id]']
-  balls smallint [not null, note: '볼카운트(볼) - 투구 직전']
-  strikes smallint [not null, note: '볼카운트(스트라이크) - 투구 직전']
-  outs smallint [not null, note: '현재아웃수 - 타석 시작 시점의 아웃 수 (0~2)']
-  pitch_type_ko varchar(10) [note: '구종명 - 구종(FK). 미측정이면 NULL']
-  speed_kmh smallint [note: '구속 - km/h']
-  pitch_result_code char(1) [note: '투구결과코드 - 투구결과(FK)']
-  plate_x numeric(6,3) [note: '홈플레이트좌우위치 - ft, 포수 시점, 0 = 플레이트 중앙 (네이버 crossPlateX)']
-  plate_z numeric(6,3) [note: '홈플레이트높이 - ft, 궤적(PITCHf/x 등가속도 모델)으로 계산한 값']
-  sz_top numeric(5,3) [note: '스트라이크존상단 - ft']
-  sz_bot numeric(5,3) [note: '스트라이크존하단 - ft']
-  batter_stance char(1) [note: '타석방향 - L 좌타석, R 우타석']
-  pa_result_text varchar(100) [note: '타석결과문자 - 타석 마지막 투구에만 네이버 결과 문장']
-  naver_pitch_id varchar(40) [note: '네이버투구ID - 원본 추적용 ptsPitchId']
-  indexes {
-    (game_id, pitch_seq) [pk]
-  }
-}
-
-Table season_batting_official [note: '시즌타자기록(공식): KBO 기록실 시즌 누적 값. 저장된 유도 속성이므로 집계 뷰와 비교·검증에만 쓴다'] {
+Table season_batting_official [note: '시즌타자기록(공식): KBO 기록실 시즌 누적 값. 화면에 직접 조회하고 경기 집계와 비교·검증한다'] {
   player_id integer [not null, note: '선수ID - 선수(FK) [도메인 d_player_id]']
   season smallint [not null, note: '시즌 - 연도 [도메인 d_season]']
   team_id char(2) [not null, note: '팀ID - 기록실 표기 팀 (❓ 이적 선수 행 분리 여부 확인 필요) [도메인 d_team_id]']
@@ -319,7 +277,7 @@ Table season_batting_official [note: '시즌타자기록(공식): KBO 기록실 
   }
 }
 
-Table season_pitching_official [note: '시즌투수기록(공식): KBO 기록실 시즌 누적 값 (검증용)'] {
+Table season_pitching_official [note: '시즌투수기록(공식): KBO 기록실 시즌 누적 값 (화면 조회 및 경기 집계 검증용)'] {
   player_id integer [not null, note: '선수ID - 선수(FK) [도메인 d_player_id]']
   season smallint [not null, note: '시즌 - 연도 [도메인 d_season]']
   team_id char(2) [not null, note: '팀ID - 기록실 표기 팀 [도메인 d_team_id]']
@@ -382,11 +340,6 @@ Ref fk_game_umpire_game: game_umpire.game_id > game.game_id [update: cascade, de
 Ref fk_game_umpire_umpire: game_umpire.umpire_id > umpire.umpire_id [update: cascade, delete: restrict]
 Ref fk_inning_score_team_game: inning_score.(game_id, team_id) > team_game.(game_id, team_id) [update: cascade, delete: cascade]
 Ref fk_pa_result_code_type: pa_result_code.result_type > pa_result_type.result_type [update: cascade, delete: restrict]
-Ref fk_pitch_batter: pitch.batter_id > player.player_id [update: cascade, delete: restrict]
-Ref fk_pitch_game: pitch.game_id > game.game_id [update: cascade, delete: cascade]
-Ref fk_pitch_pitcher: pitch.pitcher_id > player.player_id [update: cascade, delete: restrict]
-Ref fk_pitch_result: pitch.pitch_result_code > pitch_result.pitch_result_code [update: cascade, delete: restrict]
-Ref fk_pitch_type: pitch.pitch_type_ko > pitch_type.pitch_type_ko [update: cascade, delete: restrict]
 Ref fk_pitcher_game_player: pitcher_game.player_id > player.player_id [update: cascade, delete: restrict]
 Ref fk_pitcher_game_team_game: pitcher_game.(game_id, team_id) > team_game.(game_id, team_id) [update: cascade, delete: cascade]
 Ref fk_plate_appearance_batter_game: plate_appearance.(game_id, player_id) > batter_game.(game_id, player_id) [update: cascade, delete: cascade]

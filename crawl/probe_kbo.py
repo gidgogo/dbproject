@@ -24,6 +24,7 @@ from crawl.aspnet import PostbackClient, form_fields, find_name, postback_target
 from crawl.common import RAW, ROOT, PoliteSession, save_text, setup_logging  # noqa: E402
 from crawl.kbo_parsers import (HITTER_COLUMNS, PITCHER_COLUMNS, pager_pages, parse_gamelog_dates,  # noqa: E402
                                parse_profile, parse_record_table, parse_team_rank)
+from crawl.kbo_records import select_regular_season  # noqa: E402
 
 BASE = "https://www.koreabaseball.com"
 
@@ -93,7 +94,8 @@ class Probe:
         self.check("기록 표(tData)와 playerId 링크", n0 > 0, f"{n0}행")
 
         self.lines.append(f"\n**시즌 {self.season} 선택 포스트백**")
-        html = c.postback("ddlSeason$ddlSeason", {"ddlSeason$ddlSeason": str(self.season)})
+        select_regular_season(c, self.season)
+        html = c.html
         self.save("hitter_basic1_season", html)
         teams = [(v, t) for v, t in select_options(html, "ddlTeam$ddlTeam") if v]
         self.lines.append(f"- 팀 옵션: {teams}")
@@ -143,12 +145,18 @@ class Probe:
     def step_pitcher(self) -> None:
         self.section("3. 투수 기록실 Basic1·Basic2 열 이름")
         for page in ("Basic1", "Basic2"):
-            html = self.session.get(f"/Record/Player/PitcherBasic/{page}.aspx").text
+            c = PostbackClient(self.session, f"/Record/Player/PitcherBasic/{page}.aspx")
+            c.get()
+            select_regular_season(c, self.season)
+            html = c.html
             self.save(f"pitcher_{page.lower()}", html)
             self.lines.append(f"\n**{page}**")
             n = self.describe_table(html, PITCHER_COLUMNS)
             self.check(f"투수 {page} 표", n > 0)
-        html = self.session.get("/Record/Player/HitterBasic/Basic2.aspx").text
+        c = PostbackClient(self.session, "/Record/Player/HitterBasic/Basic2.aspx")
+        c.get()
+        select_regular_season(c, self.season)
+        html = c.html
         self.save("hitter_basic2", html)
         self.lines.append("\n**타자 Basic2**")
         self.check("타자 Basic2 표", self.describe_table(html, HITTER_COLUMNS) > 0)

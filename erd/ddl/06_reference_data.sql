@@ -58,12 +58,4 @@ INSERT INTO game_event_type (event_type, name_en)
 SELECT event_type, name_en FROM stg_event_type
 ON CONFLICT (event_type) DO NOTHING;
 
-\copy pitch_type FROM 'data/reference/pitch_type.csv' WITH (FORMAT csv, HEADER true)
-
-CREATE TEMP TABLE stg_pitch_result (code text, result_name text, call_type text, note text) ON COMMIT DROP;
-\copy stg_pitch_result FROM 'data/reference/pitch_result.csv' WITH (FORMAT csv, HEADER true)
-INSERT INTO pitch_result (pitch_result_code, result_name, call_type)
-SELECT code, result_name, call_type FROM stg_pitch_result
-ON CONFLICT (pitch_result_code) DO NOTHING;
-
 COMMIT;

@@ -19,22 +19,22 @@
 | D-09 | 선수 상세 (은퇴) | /Record/Retire/Hitter.aspx?playerId= (Pitcher.aspx) | 〃 | 선수 | crawl/kbo_profiles.py |
 | D-10 | 선수 일자별 기록 | /Record/Player/HitterDetail/Daily.aspx?playerId= | 출전 날짜 | (동명이인 구분용) | crawl/kbo_gamelogs.py |
 | D-11 | 팀 순위 | /Record/TeamRank/TeamRankDaily.aspx | 순위·승·패·무·승률·게임차·최근10경기·연속 | 팀순위_공식 | crawl/kbo_team_rank.py |
-| D-12 | 문자중계 | 네이버 스포츠 (api-gw.sports.naver.com 일정·relay) | 투구별 구종·구속·결과·카운트·위치 | 투구, 구종, 투구결과 | crawl/naver_relay.py |
 | D-13 | 구단 정보 | KBO 구단 소개 / 구단 홈페이지 | 팀명 변경 이력, 연고지, 홈구장 | 팀, 팀시즌, 구장 | 직접 입력 (data/reference) |
 
-## 5.2 별첨 3 — 수집 기록 (맥에서 수집할 때 채우기)
+## 5.2 별첨 3 — 수집 기록
+
+실측 범위·건수·미확인 항목은 [수집 결과](../collection_status.md)를 기준으로 한다.
+네이버 문자중계는 2026-11-06 범위에서 제외했다. 아래 박스스코어 항목은 별도 검증 전이다.
 
 | 번호 | 수집일 | 범위 | 요청 수 | 결과 파일 | 캡처 |
 |---|---|---|---|---|---|
 | D-02~05 | | 2025-06-01 (5경기) 테스트 | | ~/Desktop/data/test/ | |
-| D-06~07 | | 2025 시즌 | | data/player_season_team.csv, season_*.csv | |
-| D-08~09 | | 2025 시즌 선수 | | data/players.csv | |
-| D-11 | | 2025 시즌 최종 | | data/team_rank.csv | |
-| D-12 | | 2025 시즌 한 팀 | | data/pitches_2025_<팀>.csv | |
+| D-06~07 | 2026-11-06 | 2025 시즌 10개 구단 | | data/player_season_team.csv, season_*.csv | 원본 HTML 로컬 저장 |
+| D-08~09 | 2026-11-06 | 2025 목록의 선수, 조회 시점 프로필 | | data/players.csv | 원본 HTML 로컬 저장 |
+| D-11 | 2026-11-06 | 2025-10-31 기준 | | data/team_rank.csv | 원본 HTML 로컬 저장 |
 
 ## 5.3 출처 표기 (보고서·발표 공통)
 
 - 경기·선수 기록: KBO 공식 홈페이지 (www.koreabaseball.com)
 - 박스스코어 수집 도구: kbo-data (GitHub dev-bearabbit/kbo-data, MIT License)
-- 투구 데이터: 네이버 스포츠 문자중계
 - 데이터는 수업 프로젝트 용도로만 사용함

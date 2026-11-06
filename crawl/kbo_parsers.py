@@ -151,7 +151,10 @@ def parse_position(s: str | None) -> tuple[str | None, str | None, str | None]:
 
 def parse_height_weight(s: str | None) -> tuple[int | None, int | None]:
     m = re.search(r"(\d+)\s*cm\s*/\s*(\d+)\s*kg", s or "", re.I)
-    return (int(m.group(1)), int(m.group(2))) if m else (None, None)
+    # KBO가 미등록 신체 정보를 0cm/0kg로 표시하기도 한다.
+    if not m:
+        return None, None
+    return int(m.group(1)) or None, int(m.group(2)) or None
 
 
 def parse_money(s: str | None) -> tuple[int | None, int | None]:

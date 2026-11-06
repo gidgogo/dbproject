@@ -29,6 +29,11 @@ psql -d kbo -f erd/ddl/07_load_data.sql
 
 더 큰 가상 데이터(한 시즌 720경기, 시즌 2099)는 `tools/perf_check.sql` 앞부분을 쓰면 된다.
 
+KBO 실제 CSV만 적재하려면 `python etl/crawl_to_tables.py` 후 `11_load_kbo.sql`을 실행한다.
+기존 DB 전환은 `10_kbo_only.sql`을 먼저 실행한다. 네이버 API·투구 엔터티는 구현하지 않는다.
+현재 소속·등번호는 `player.current_team_name/current_uniform_no`이고 과거 시즌 소속과 구분한다.
+경기 관련 화면·상대전적·백분위는 실제 박스스코어 적재 전까지 준비 상태로 표시한다.
+
 ## 2. application.yml 권장 설정
 
 ```yaml
@@ -45,7 +50,7 @@ spring:
 ## 3. 엔터티 매핑 메모
 
 - 복합 PK 테이블이 많다: `batter_game(game_id, player_id)`, `team_game(game_id, team_id)`, `plate_appearance(game_id, player_id, inning, seq_in_inning)`,
-  `pitch(game_id, pitch_seq)`, `player_season(player_id, season, team_id)` … → `@IdClass` 또는 `@EmbeddedId`
+  `player_season(player_id, season, team_id)` … → `@IdClass` 또는 `@EmbeddedId`
 - 자료형: smallint 계열(d_count, d_inning, d_season) → `Short`(또는 `Integer`), numeric → `BigDecimal`, char(2) → `String`
 - `game.season`, `game.kbo_game_id` 는 **생성 컬럼**이라 INSERT/UPDATE 금지 → `@Column(insertable = false, updatable = false)`
 - `game_event.event_id` 는 `GENERATED ALWAYS AS IDENTITY` → `@GeneratedValue(strategy = IDENTITY)`
@@ -58,11 +63,11 @@ spring:
 | 경기 목록·결과 | `v_game_summary`, `v_game_pitchers` | `game_date = ?` / `season = ? AND (home_team_id = ? OR away_team_id = ?)` |
 | 박스스코어 | `team_game`, `inning_score`, `v_batter_game_line`, `pitcher_game`, `game_event` | `game_id = ?` |
 | 선수 프로필 | `player`, `player_season`, `player_salary` | `player_id = ?` |
-| 선수 시즌 표 (b-ref식) | `v_season_batting_total`, `v_season_pitching_total` (팀별은 `mv_season_*`) | `player_id = ? ORDER BY season` |
+| 선수 시즌 표 (b-ref식) | `season_batting_official`, `season_pitching_official` | `player_id = ? ORDER BY season` |
 | 선수 비교 | 위 뷰를 두 선수로 조회 + `v_batting_percentile` | `player_id IN (?, ?) AND season = ?` |
 | 팀 프로필 | `team`, `team_season`, `v_team_head_to_head` | `team_id = ?` |
-| 순위 | `mv_team_standings` | `season = ? ORDER BY rank` |
-| 시각화 | `v_pitch_mix`, `v_pitch_detail`(zone), `v_spray_chart` | `pitcher_id = ? AND season = ?` |
+| 순위 | `team_rank_official` | `season = ? AND as_of_date = ? ORDER BY rank` |
+| 시각화 | 공식 시즌 기록 비교, 경기 적재 후 `v_spray_chart`·`v_batting_percentile` | `player_id = ? AND season = ?` |
 
 시즌 성적·순위 MV는 데이터 적재 후 `SELECT fn_refresh_stats();` 로 갱신한다(07_load_data.sql 마지막 줄에 포함).
 

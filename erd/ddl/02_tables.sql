@@ -1,6 +1,6 @@
 -- =====================================================================
 -- KBO 야구 기록 DB · 02. 테이블
---   컬럼 COMMENT 형식: '논리명: 설명'  → tools/gen_table_spec.py 가 이 주석을 읽어
+--   컬럼 COMMENT 형식: '논리명: 설명'  → tools/gen_erd_docs.py 가 이 주석을 읽어
 --   보고서 10장(테이블 기술서)을 자동으로 만든다. 주석을 고치면 기술서도 같이 바뀐다.
 --
 --   FK 참조 무결성 정책 요약 (자세한 이유는 docs/report/07_physical_model.md)
@@ -83,12 +83,16 @@ CREATE TABLE player (
     signing_bonus_10k   integer,
     is_retired          boolean        NOT NULL DEFAULT false,
     profile_crawled_at  timestamptz,
+    current_team_name   varchar(60),
+    current_uniform_no  varchar(3),
+    profile_source_url  text,
     CONSTRAINT pk_player PRIMARY KEY (player_id),
     CONSTRAINT ck_player_height CHECK (height_cm BETWEEN 140 AND 230),
     CONSTRAINT ck_player_weight CHECK (weight_kg BETWEEN 40 AND 200),
     CONSTRAINT ck_player_throws CHECK (throws IN ('L', 'R')),
     CONSTRAINT ck_player_position CHECK (position IN ('투수', '포수', '내야수', '외야수')),
-    CONSTRAINT ck_player_bonus CHECK (signing_bonus_10k >= 0)
+    CONSTRAINT ck_player_bonus CHECK (signing_bonus_10k >= 0),
+    CONSTRAINT ck_player_current_uniform CHECK (current_uniform_no ~ '^[0-9]{1,3}$')
 );
 COMMENT ON TABLE  player IS '선수: KBO playerId로 식별하는 선수 마스터. 이름은 동명이인·개명이 있어 식별자로 쓰지 않는다';
 COMMENT ON COLUMN player.player_id          IS '선수ID: KBO playerId';
@@ -107,6 +111,10 @@ COMMENT ON COLUMN player.join_year          IS '입단연도: 입단정보에서
 COMMENT ON COLUMN player.signing_bonus_10k  IS '입단계약금: 만원 단위 (원화가 아니면 NULL)';
 COMMENT ON COLUMN player.is_retired         IS '은퇴여부: 은퇴 선수 페이지에서 수집했으면 true';
 COMMENT ON COLUMN player.profile_crawled_at IS '프로필수집일시: 상세 페이지를 받은 시각';
+
+COMMENT ON COLUMN player.current_team_name IS '현재소속명: 프로필 수집 시점의 소속 원문. 상무 등 KBO 10개 구단 외 소속도 보존하며 과거 시즌 소속과 구분';
+COMMENT ON COLUMN player.current_uniform_no IS '현재등번호: 프로필 수집 시점의 등번호. 과거 시즌에 소급하지 않음';
+COMMENT ON COLUMN player.profile_source_url IS '프로필출처: KBO playerId가 포함된 상세 페이지 URL';
 
 CREATE TABLE player_season (
     player_id       d_player_id    NOT NULL,
@@ -131,7 +139,7 @@ COMMENT ON COLUMN player_season.team_id        IS '팀ID: 소속팀. (팀ID, 시
 COMMENT ON COLUMN player_season.name_in_season IS '시즌표기명: 그 시즌 기록실 표기 이름 (개명·외국인 이름 축약 대응)';
 COMMENT ON COLUMN player_season.is_batter      IS '타자기록여부: 기록실 타자 목록에 있으면 true';
 COMMENT ON COLUMN player_season.is_pitcher     IS '투수기록여부: 기록실 투수 목록에 있으면 true';
-COMMENT ON COLUMN player_season.uniform_no     IS '등번호: 상세 페이지에서 수집 (현재 시즌만 확인 가능, 과거 시즌은 NULL)';
+COMMENT ON COLUMN player_season.uniform_no     IS '시즌등번호: 별도 시즌 근거가 있을 때만 입력. 현재 프로필의 등번호는 player.current_uniform_no에 저장';
 
 CREATE TABLE player_salary (
     player_id       d_player_id  NOT NULL,
@@ -200,7 +208,7 @@ COMMENT ON COLUMN game.attendance      IS '관중수: 명 (무관중 경기는 0
 COMMENT ON COLUMN game.start_time      IS '개시시각: 경기 시작 시각';
 COMMENT ON COLUMN game.end_time        IS '종료시각: 경기 종료 시각';
 COMMENT ON COLUMN game.duration_min    IS '경기시간: 분 단위 (3:05 → 185)';
-COMMENT ON COLUMN game.kbo_game_id     IS 'KBO경기ID: KBO·네이버 연동용 G_ID (밑줄 제거, 생성 컬럼). 네이버 gameId = KBO경기ID + 시즌';
+COMMENT ON COLUMN game.kbo_game_id     IS 'KBO경기ID: KBO 게임센터 G_ID (밑줄 제거, 생성 컬럼)';
 
 CREATE TABLE team_game (
     game_id    d_game_id  NOT NULL,
@@ -481,100 +489,7 @@ COMMENT ON COLUMN game_umpire.umpire_id    IS '심판ID: 심판(FK)';
 COMMENT ON COLUMN game_umpire.listed_order IS '표기순서: 박스스코어 나열 순서 (❓ 주심/누심 구분 규칙 확인 필요)';
 
 -- ---------------------------------------------------------------------
--- 7. 투구 (네이버 문자중계)
--- ---------------------------------------------------------------------
-CREATE TABLE pitch_type (
-    pitch_type_ko  varchar(10)  NOT NULL,
-    statcast_code  char(2)      NOT NULL,
-    name_en        varchar(30)  NOT NULL,
-    pitch_group    varchar(10)  NOT NULL,
-    CONSTRAINT pk_pitch_type PRIMARY KEY (pitch_type_ko),
-    CONSTRAINT ck_pitch_type_group CHECK (pitch_group IN ('FASTBALL', 'BREAKING', 'OFFSPEED', 'OTHER'))
-);
-COMMENT ON TABLE  pitch_type IS '구종: 네이버 문자중계 구종 표기와 Statcast 코드 대응';
-COMMENT ON COLUMN pitch_type.pitch_type_ko IS '구종명: 네이버 표기 (직구, 슬라이더 ...)';
-COMMENT ON COLUMN pitch_type.statcast_code IS 'Statcast코드: FF, SL, CH ...';
-COMMENT ON COLUMN pitch_type.name_en       IS '영문명: 영문 구종명';
-COMMENT ON COLUMN pitch_type.pitch_group   IS '구종군: FASTBALL 직구계열, BREAKING 변화구, OFFSPEED 체인지업 계열, OTHER';
-
-CREATE TABLE pitch_result (
-    pitch_result_code  char(1)      NOT NULL,
-    result_name        varchar(20)  NOT NULL,
-    call_type          char(1)      NOT NULL,
-    CONSTRAINT pk_pitch_result PRIMARY KEY (pitch_result_code),
-    CONSTRAINT ck_pitch_result_call CHECK (call_type IN ('B', 'S', 'X'))
-);
-COMMENT ON TABLE  pitch_result IS '투구결과: 네이버 pitchResult 코드';
-COMMENT ON COLUMN pitch_result.pitch_result_code IS '투구결과코드: B 볼, T 스트라이크, S 헛스윙, F 파울, V 번트헛스윙, W 번트파울, H 타격';
-COMMENT ON COLUMN pitch_result.result_name       IS '투구결과명: 한글 이름';
-COMMENT ON COLUMN pitch_result.call_type         IS '판정구분: B 볼, S 스트라이크, X 인플레이';
-
-CREATE TABLE pitch (
-    game_id            d_game_id    NOT NULL,
-    pitch_seq          integer      NOT NULL,
-    inning             d_inning     NOT NULL,
-    half               char(1)      NOT NULL,
-    at_bat_no          smallint     NOT NULL,
-    pitch_no           smallint     NOT NULL,
-    pitcher_id         d_player_id  NOT NULL,
-    batter_id          d_player_id  NOT NULL,
-    balls              smallint     NOT NULL,
-    strikes            smallint     NOT NULL,
-    outs               smallint     NOT NULL,
-    pitch_type_ko      varchar(10),
-    speed_kmh          smallint,
-    pitch_result_code  char(1),
-    plate_x            numeric(6,3),
-    plate_z            numeric(6,3),
-    sz_top             numeric(5,3),
-    sz_bot             numeric(5,3),
-    batter_stance      char(1),
-    pa_result_text     varchar(100),
-    naver_pitch_id     varchar(40),
-    CONSTRAINT pk_pitch PRIMARY KEY (game_id, pitch_seq),
-    CONSTRAINT uq_pitch_pa UNIQUE (game_id, at_bat_no, pitch_no),
-    CONSTRAINT fk_pitch_game FOREIGN KEY (game_id)
-        REFERENCES game (game_id) ON UPDATE CASCADE ON DELETE CASCADE,
-    CONSTRAINT fk_pitch_pitcher FOREIGN KEY (pitcher_id)
-        REFERENCES player (player_id) ON UPDATE CASCADE ON DELETE RESTRICT,
-    CONSTRAINT fk_pitch_batter FOREIGN KEY (batter_id)
-        REFERENCES player (player_id) ON UPDATE CASCADE ON DELETE RESTRICT,
-    CONSTRAINT fk_pitch_type FOREIGN KEY (pitch_type_ko)
-        REFERENCES pitch_type (pitch_type_ko) ON UPDATE CASCADE ON DELETE RESTRICT,
-    CONSTRAINT fk_pitch_result FOREIGN KEY (pitch_result_code)
-        REFERENCES pitch_result (pitch_result_code) ON UPDATE CASCADE ON DELETE RESTRICT,
-    CONSTRAINT ck_pitch_seq CHECK (pitch_seq >= 1 AND at_bat_no >= 1 AND pitch_no >= 1),
-    CONSTRAINT ck_pitch_half CHECK (half IN ('T', 'B')),
-    CONSTRAINT ck_pitch_count CHECK (balls BETWEEN 0 AND 3 AND strikes BETWEEN 0 AND 2 AND outs BETWEEN 0 AND 2),
-    CONSTRAINT ck_pitch_speed CHECK (speed_kmh BETWEEN 50 AND 175),
-    CONSTRAINT ck_pitch_zone CHECK (sz_top > sz_bot),
-    CONSTRAINT ck_pitch_stance CHECK (batter_stance IN ('L', 'R'))
-);
-COMMENT ON TABLE  pitch IS '투구: 네이버 문자중계 투구 1개 (구종·구속·카운트·로케이션)';
-COMMENT ON COLUMN pitch.game_id           IS '경기ID: 경기(FK). 네이버 gameId에서 변환';
-COMMENT ON COLUMN pitch.pitch_seq         IS '투구순번: 경기 안에서 투구 순서 (1부터)';
-COMMENT ON COLUMN pitch.inning            IS '이닝: 이닝';
-COMMENT ON COLUMN pitch.half              IS '초말: T 초(원정 공격), B 말(홈 공격)';
-COMMENT ON COLUMN pitch.at_bat_no         IS '타석순번: 경기 안에서 타석 순서 (네이버 기준)';
-COMMENT ON COLUMN pitch.pitch_no          IS '타석내투구번호: 그 타석의 몇 번째 공인지';
-COMMENT ON COLUMN pitch.pitcher_id        IS '투수ID: 선수(FK)';
-COMMENT ON COLUMN pitch.batter_id         IS '타자ID: 선수(FK)';
-COMMENT ON COLUMN pitch.balls             IS '볼카운트(볼): 투구 직전';
-COMMENT ON COLUMN pitch.strikes           IS '볼카운트(스트라이크): 투구 직전';
-COMMENT ON COLUMN pitch.outs              IS '현재아웃수: 타석 시작 시점의 아웃 수 (0~2)';
-COMMENT ON COLUMN pitch.pitch_type_ko     IS '구종명: 구종(FK). 미측정이면 NULL';
-COMMENT ON COLUMN pitch.speed_kmh         IS '구속: km/h';
-COMMENT ON COLUMN pitch.pitch_result_code IS '투구결과코드: 투구결과(FK)';
-COMMENT ON COLUMN pitch.plate_x           IS '홈플레이트좌우위치: ft, 포수 시점, 0 = 플레이트 중앙 (네이버 crossPlateX)';
-COMMENT ON COLUMN pitch.plate_z           IS '홈플레이트높이: ft, 궤적(PITCHf/x 등가속도 모델)으로 계산한 값';
-COMMENT ON COLUMN pitch.sz_top            IS '스트라이크존상단: ft';
-COMMENT ON COLUMN pitch.sz_bot            IS '스트라이크존하단: ft';
-COMMENT ON COLUMN pitch.batter_stance     IS '타석방향: L 좌타석, R 우타석';
-COMMENT ON COLUMN pitch.pa_result_text    IS '타석결과문자: 타석 마지막 투구에만 네이버 결과 문장';
-COMMENT ON COLUMN pitch.naver_pitch_id    IS '네이버투구ID: 원본 추적용 ptsPitchId';
-
--- ---------------------------------------------------------------------
--- 8. 기록실 공식 기록 (박스스코어 집계 검증용, 2-3 크롤링)
+-- 7. KBO 공식 시즌 기록과 순위
 -- ---------------------------------------------------------------------
 CREATE TABLE season_batting_official (
     player_id          d_player_id  NOT NULL,
@@ -609,7 +524,7 @@ CREATE TABLE season_batting_official (
         REFERENCES team_season (team_id, season) ON UPDATE CASCADE ON DELETE RESTRICT,
     CONSTRAINT ck_sbo_hits CHECK (hits <= at_bats)
 );
-COMMENT ON TABLE  season_batting_official IS '시즌타자기록(공식): KBO 기록실 시즌 누적 값. 저장된 유도 속성이므로 집계 뷰와 비교·검증에만 쓴다';
+COMMENT ON TABLE  season_batting_official IS '시즌타자기록(공식): KBO 기록실 시즌 누적 값. 화면에 직접 조회하고 경기 집계와 비교·검증한다';
 COMMENT ON COLUMN season_batting_official.player_id         IS '선수ID: 선수(FK)';
 COMMENT ON COLUMN season_batting_official.season            IS '시즌: 연도';
 COMMENT ON COLUMN season_batting_official.team_id           IS '팀ID: 기록실 표기 팀 (❓ 이적 선수 행 분리 여부 확인 필요)';
@@ -669,7 +584,7 @@ CREATE TABLE season_pitching_official (
         REFERENCES team_season (team_id, season) ON UPDATE CASCADE ON DELETE RESTRICT,
     CONSTRAINT ck_spo_er CHECK (earned_runs <= runs_allowed)
 );
-COMMENT ON TABLE  season_pitching_official IS '시즌투수기록(공식): KBO 기록실 시즌 누적 값 (검증용)';
+COMMENT ON TABLE  season_pitching_official IS '시즌투수기록(공식): KBO 기록실 시즌 누적 값 (화면 조회 및 경기 집계 검증용)';
 COMMENT ON COLUMN season_pitching_official.player_id         IS '선수ID: 선수(FK)';
 COMMENT ON COLUMN season_pitching_official.season            IS '시즌: 연도';
 COMMENT ON COLUMN season_pitching_official.team_id           IS '팀ID: 기록실 표기 팀';

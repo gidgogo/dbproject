@@ -14,11 +14,6 @@ erDiagram
     umpire ||--o{ game_umpire : "umpire_id"
     team_game ||--o{ inning_score : "game_id,team_id"
     pa_result_type ||..o{ pa_result_code : "result_type"
-    player ||..o{ pitch : "batter_id"
-    game ||--o{ pitch : "game_id"
-    player ||..o{ pitch : "pitcher_id"
-    pitch_result |o..o{ pitch : "pitch_result_code"
-    pitch_type |o..o{ pitch : "pitch_type_ko"
     player ||--o{ pitcher_game : "player_id"
     team_game ||..o{ pitcher_game : "game_id,team_id"
     batter_game ||--o{ plate_appearance : "game_id,player_id"
@@ -72,6 +67,9 @@ erDiagram
         integer signing_bonus_10k "입단계약금"
         boolean is_retired "은퇴여부"
         timestamptz profile_crawled_at "프로필수집일시"
+        varchar60 current_team_name "현재소속명"
+        varchar3 current_uniform_no "현재등번호"
+        text profile_source_url "프로필출처"
     }
     player_season {
         d_player_id player_id PK,FK "선수ID"
@@ -80,7 +78,7 @@ erDiagram
         d_person_name name_in_season "시즌표기명"
         boolean is_batter "타자기록여부"
         boolean is_pitcher "투수기록여부"
-        varchar3 uniform_no "등번호"
+        varchar3 uniform_no "시즌등번호"
     }
     player_salary {
         d_player_id player_id PK,FK "선수ID"
@@ -201,40 +199,6 @@ erDiagram
         d_game_id game_id PK,FK "경기ID"
         smallint umpire_id PK,FK "심판ID"
         smallint listed_order "표기순서"
-    }
-    pitch_type {
-        varchar10 pitch_type_ko PK "구종명"
-        char2 statcast_code "Statcast코드"
-        varchar30 name_en "영문명"
-        varchar10 pitch_group "구종군"
-    }
-    pitch_result {
-        char1 pitch_result_code PK "투구결과코드"
-        varchar20 result_name "투구결과명"
-        char1 call_type "판정구분"
-    }
-    pitch {
-        d_game_id game_id PK,FK "경기ID"
-        integer pitch_seq PK "투구순번"
-        d_inning inning "이닝"
-        char1 half "초말"
-        smallint at_bat_no "타석순번"
-        smallint pitch_no "타석내투구번호"
-        d_player_id pitcher_id FK "투수ID"
-        d_player_id batter_id FK "타자ID"
-        smallint balls "볼카운트(볼)"
-        smallint strikes "볼카운트(스트라이크)"
-        smallint outs "현재아웃수"
-        varchar10 pitch_type_ko FK "구종명"
-        smallint speed_kmh "구속"
-        char1 pitch_result_code FK "투구결과코드"
-        numeric6_3 plate_x "홈플레이트좌우위치"
-        numeric6_3 plate_z "홈플레이트높이"
-        numeric5_3 sz_top "스트라이크존상단"
-        numeric5_3 sz_bot "스트라이크존하단"
-        char1 batter_stance "타석방향"
-        varchar100 pa_result_text "타석결과문자"
-        varchar40 naver_pitch_id "네이버투구ID"
     }
     season_batting_official {
         d_player_id player_id PK,FK "선수ID"

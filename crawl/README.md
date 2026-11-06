@@ -1,148 +1,99 @@
-# 크롤링 실행 가이드 (성수 맥에서)
+# KBO 수집·적재 가이드
 
-클라우드 환경에서는 koreabaseball.com·네이버 접속이 막혀 있어서 **모든 수집은 맥에서** 실행한다.
-모든 명령은 **레포 최상위 폴더**(이 README의 상위 폴더)에서 실행한다.
+네이버 수집은 제외했다. 모든 명령은 레포 최상위 폴더에서 실행한다.
 
-## 0. 준비 (처음 한 번)
-
-```bash
-source ~/Desktop/kbo-env/bin/activate
-```
+## 1. 준비
 
 ```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r crawl/requirements.txt
 ```
 
-## 1. 페이지 구조 확인 (요청 약 12회, 1분) — 꼭 먼저
+페이지 구조가 바뀌어 실패하면 `python crawl/probe_kbo.py --season 2025`로 확인한다.
 
-```bash
-python crawl/probe_kbo.py --season 2025
-```
-
-```bash
-python crawl/naver_probe.py --years 2018,2020,2022,2023,2025
-```
-
-결과: `docs/probe/kbo_probe_YYYYMMDD.md`, `docs/probe/naver_probe_YYYYMMDD.md`.
-❌ 항목이 있으면 그 파일과 `data/raw/probe/*.html`을 Claude에게 넘겨서 크롤러를 고친 뒤 진행한다.
-
-## 2. 선수 목록·playerId 매핑표 + 기록실 시즌 기록 (2-2 ①, 2-3)
-
-프로토타입(2025 두산, 이번 주 목표):
-
-```bash
-python crawl/kbo_records.py --seasons 2025 --teams OB
-```
-
-2025 전체 팀 (약 90요청, 3분):
+## 2. 선수 목록과 시즌 타자·투수 기록
 
 ```bash
 python crawl/kbo_records.py --seasons 2025
 ```
 
-결과: `data/player_season_team.csv`(매핑표 → 배인표), `data/season_batting.csv`, `data/season_pitching.csv`.
-중간에 끊기면 **같은 명령을 다시** 실행하면 끝난 (시즌, 팀) 단위는 건너뛴다(`data/raw/kbo/records/_done.json`).
+한 팀만 시험하려면 `--teams OB`를 붙인다. 결과는 `data/player_season_team.csv`,
+`data/season_batting.csv`, `data/season_pitching.csv`다.
+시즌·팀·타자/투수·Basic1/2 단위로 완료를 기록하므로 같은 명령으로 이어받을 수 있다.
+정규시즌 선택 후 연도를 바꾸며, 빈 표·반복 페이지·잘못된 시즌/팀을 완료 처리하지 않는다.
+실패 시 종료 코드 1과 로그를 확인한다. 성공한 단위는 남으므로 파일 존재만으로 전체 완료라 판단하지 않는다.
+시즌 기록은 **완료 표시가 있는 Basic1·2의 선수 목록과 공통 값이 일치할 때만** 갱신한다.
+`--pages basic1`은 ID 목록만 받는 용도다. 한쪽 페이지만 받았거나 서로 불일치하면 기존 시즌 기록을 보존한다.
+기본 실행·`--merge-only`에서 미완료 단위가 발견되면 종료 코드 1을 반환한다.
 
-## 3. 선수 상세 (2-2 ②)
-
-샘플 20명:
-
-```bash
-python crawl/kbo_profiles.py --seasons 2025 --limit 20
-```
-
-2025 선수 전원 (약 600~700명 × 1~2초 ≈ 15~25분):
+## 3. 선수 상세
 
 ```bash
 python crawl/kbo_profiles.py --seasons 2025
 ```
 
-결과: `data/players.csv` (이미 받은 선수는 건너뜀, 20명마다 저장)
+시험하려면 `--limit 20`. 이미 받은 선수는 건너뛰고 `--refresh`로 갱신한다.
+결과는 `data/players.csv`, 실패 ID는 `data/raw/kbo/profiles/_failed.txt`에 기록한다.
+일부 실패도 종료 코드 1로 알리며, 성공한 프로필은 저장한다.
 
-## 4. 팀 순위 (2-3)
+프로필은 **조회 시점의 값**이다. `--seasons 2025`는 대상 선수 목록을 고를 뿐, 2025 프로필을 복원하지 않는다.
+현재 소속명(상무 포함)·등번호·수집 시각·URL을 `player`에 저장하며 과거 소속은 `player_season`을 사용한다.
+연봉 기준 연도는 `--salary-season`으로 지정한다(기본 3~12월 올해, 1~2월 전년이라는 추정 규칙).
+페이지에 과거 시즌 근거가 없으므로 과거 연봉으로 표시하지 않는다. 필요하면 원문과 기준 연도를 별도로 확인한다.
 
-```bash
-python crawl/kbo_team_rank.py --seasons 2025
-```
-
-## 5. kbodata 박스스코어와 매핑 검증 (2-2 검증)
-
-kbo_fetch.py 에 `crawl/kbodata_patch.py` 적용 방법: `docs/handoff/preprocessing_baeinpyo.md` 1번.
-
-```bash
-python etl/kbodata_to_tables.py ~/Desktop/data/test/raw.json --players data/player_season_team.csv --check-only
-```
-
-같은 팀·같은 이름이 있어 'ambiguous'가 나오면 출전 일자를 받아 다시 매핑:
+## 4. 기준일별 팀 순위
 
 ```bash
-python etl/kbodata_to_tables.py ~/Desktop/data/test/raw.json --players data/player_season_team.csv
+python crawl/kbo_team_rank.py --dates 2025-10-31
 ```
 
-```bash
-python crawl/kbo_gamelogs.py --from-unmatched data/load/_unmatched_players.csv
-```
+결과는 `data/team_rank.csv`. 기준일은 `as_of_date`에 보존한다.
+응답의 기준일, 해당 시즌의 전체 팀 수, 필수 숫자, 경기 수와 승패무 합계를 검사한다.
+빈 표·팀 누락·잘못된 기준일은 실패로 처리하며 기존 CSV를 바꾸지 않는다.
 
-## 6. 네이버 투구 (2-4, 11/20까지)
-
-시험 3경기:
-
-```bash
-python crawl/naver_relay.py --season 2025 --team OB --max-games 3
-```
-
-한 팀 시즌 전체 (약 1,400요청, 35~45분):
-
-```bash
-python crawl/naver_relay.py --season 2025 --team OB
-```
-
-결과: `data/pitches_2025_OB.csv`, 리포트 `data/raw/naver/2025/_report_OB.md`
-
-## 7. DB에 적재
+## 5. KBO 수집 결과만 DB에 적재
 
 ```bash
 python etl/crawl_to_tables.py
+createdb kbo
+psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/00_create_all.sql
+psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/11_load_kbo.sql
 ```
 
-kbo_fetch.py 가 raw JSON 을 저장한 위치로 경로를 바꿔서 실행 (여러 파일 가능):
+DB를 이미 만들었다면 `createdb`·`00_create_all.sql`을 반복하지 않는다.
+옛 네이버 포함 설계에서 전환할 때는 먼저 `10_kbo_only.sql`을 실행한다.
+전환 뒤에는 ETL을 다시 실행해야 새 프로필 컬럼 순서로 적재된다.
+`11_load_kbo.sql`은 재실행 가능하며 경기 파일이 필요 없다.
+현재 프로필은 수집 시각이 같거나 더 최신인 경우에만 갱신한다. 이름만 있는 목록이나 오래된 프로필로
+최신 이름·소속·은퇴 여부·기존 연봉을 덮어쓰지 않는다.
+`10_kbo_only.sql`은 보관 이동과 뷰 교체를 함께 처리하므로 오류 시 전체 변경이 취소된다.
+보관 테이블이 있는 DB에서는 `99_drop_all.sql`을 거부한다. 전체 초기화가 필요하면 별도 개발 DB를 사용한다.
+
+화면은 `player`, `player_season`, `player_salary`, `season_batting_official`,
+`season_pitching_official`, `team_rank_official`을 읽는다. 경기 MV가 비어 있어도 공식 시즌 기록은 조회 가능하다.
+
+## 6. 박스스코어가 확보된 경우에만 추가 적재
+
+kbodata 수집은 배인표 전처리 작업이다. 패치 안내는 [인수인계](../docs/handoff/preprocessing_baeinpyo.md)를 본다.
+실제 JSON 경로를 지정한다.
 
 ```bash
-python etl/kbodata_to_tables.py ~/Desktop/data/2025/*.json
+python etl/kbodata_to_tables.py /path/to/raw.json --players data/player_season_team.csv --check-only
+python etl/kbodata_to_tables.py /path/to/raw.json --players data/player_season_team.csv
+psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/07_load_data.sql
 ```
 
-```bash
-python etl/pitches_to_tables.py
-```
+동명이인은 playerId 자체와 별개로 이름→ID 매핑을 검증한다. 모호한 행을 임의로 연결하지 않는다.
+필요하면 `crawl/kbo_gamelogs.py --from-unmatched data/load/_unmatched_players.csv`로 출전일을 확인한다.
+스코어보드에 홈·원정 두 행이 없으면 적재 전체를 취소한다. 경기 집계 MV는 적재 후 갱신한다.
+박스스코어를 완전히 적재한 뒤 공식 시즌 기록과 비교한다.
 
-```bash
-psql -d kbo -f erd/ddl/07_load_data.sql
-```
+## 수집 범위와 요청 방식
 
-```bash
-psql -d kbo -f erd/ddl/08_load_pitch.sql
-```
-
-## 크롤링 예의 (모든 스크립트 공통, crawl/common.py)
-
-- 요청 사이 1~2초 무작위 간격, 순차 요청(동시 요청 없음)
-- 네트워크 오류·5xx는 2·4·8·16초 기다렸다 최대 4번 재시도
-- 시즌·팀·경기 단위 이어받기, 원본(HTML/JSON)은 `data/raw/`에 저장해서 다시 받지 않고 재파싱
-- User-Agent는 일반 브라우저 문자열 (개인정보 없음). 바꾸려면 `export KBO_CRAWL_UA="..."`
-
-## 파일 구성
-
-| 파일 | 역할 |
-|---|---|
-| common.py | HTTP 세션(간격·재시도), 체크포인트, CSV 저장 |
-| aspnet.py | KBO ASP.NET 포스트백 (폼 전체 재전송) |
-| kbo_parsers.py | KBO HTML 파서 (순수 함수, 테스트 있음) |
-| probe_kbo.py | KBO 구조 확인 |
-| kbo_records.py | 기록실 → 매핑표 + 시즌 기록 |
-| kbo_profiles.py | 선수 상세 |
-| kbo_team_rank.py | 팀 순위 |
-| kbo_gamelogs.py | 동명이인 구분용 출전 일자 |
-| kbodata_patch.py | kbodata 버그 보정 |
-| naver_parsers.py | 네이버 중계 → 투구 행 (순수 함수, 테스트 있음) |
-| naver_probe.py | 네이버 구조·제공 연도 확인 |
-| naver_relay.py | 네이버 투구 수집 |
+- 수집 대상: 선수 상세, Basic1/2 시즌 타자·투수 기록, 기준일 팀 순위.
+- 제외: 네이버 문자중계 및 투구별 구종·구속·좌표·볼카운트.
+- 미구현: 수비·주루 전용 시즌 기록, 엔트리 등록·말소 이력.
+- 요청 간격 1~2초, 순차 수집. 오류는 재시도하며 원본 HTML은 `data/raw/`에 저장한다.
+- 지원 도구: `common.py`, `aspnet.py`, `kbo_parsers.py`, `probe_kbo.py`, `kbo_records.py`,
+  `kbo_profiles.py`, `kbo_team_rank.py`, `kbo_gamelogs.py`, `kbodata_patch.py`.

@@ -69,6 +69,10 @@ def test_reference_team_and_stadium():
     assert ref.stadium_id("대구", 2015) == 3
     assert ref.stadium_id("대구", 2016) == 4
     assert ref.stadium_id("없는구장", 2025) is None
+    assert ref.team_id("두산 베어스", 2026) == "OB"
+    assert ref.team_id("SK 와이번스", 2020) == "SK"
+    assert ref.team_id("SSG 랜더스", 2025) == "SK"
+    assert ref.team_id("", 2025) is None
 
 
 def test_player_mapper_rules():
@@ -105,3 +109,32 @@ def test_pa_result_reference_is_consistent():
     assert by_code[1300]["result_type"] == "HOME_RUN"
     assert by_code[5005]["result_type"] == "SAC_FLY"
     assert types["SAC_FLY"]["is_at_bat"] == "0" and types["REACHED_ON_ERROR"]["is_at_bat"] == "1"
+
+
+
+def test_current_profile_is_not_historical_membership(tmp_path):
+    from crawl.common import write_csv, read_csv
+    from etl.crawl_to_tables import build
+    data, out = tmp_path / "source", tmp_path / "load"
+    write_csv(data / "player_season_team.csv", [
+        {"player_id": 54205, "season": 2025, "team_id": "OB", "name": "여동건", "is_batter": 1},
+        {"player_id": 54205, "season": 2026, "team_id": "OB", "name": "여동건", "is_batter": 1},
+    ], ["player_id", "season", "team_id", "name", "is_batter"])
+    profile = {"player_id": 54205, "player_name": "여동건", "team_name": "상무", "team_id": "",
+               "uniform_no": "01", "salary_season": 2026, "salary_10k_krw": 3000,
+               "height_cm": 0, "weight_kg": 0,
+               "crawled_at": "2026-11-06T12:00:00+09:00", "source_url": "https://www.koreabaseball.com/Record/Player/HitterDetail/Basic.aspx?playerId=54205"}
+    write_csv(data / "players.csv", [profile], list(profile))
+    build(data, out)
+    player = read_csv(out / "player.csv")[0]
+    assert player["height_cm"] == player["weight_kg"] == ""
+    assert player["current_team_name"] == "상무"
+    assert player["current_uniform_no"] == "01"
+    assert "playerId=54205" in player["profile_source_url"]
+    assert all(r["team_id"] == "OB" and not r["uniform_no"] for r in read_csv(out / "player_season.csv"))
+    assert read_csv(out / "player_salary.csv")[0]["season"] == "2026"
+    # Even a matching team and year cannot prove the season's historical uniform.
+    profile["team_id"], profile["team_name"] = "OB", "두산 베어스"
+    write_csv(data / "players.csv", [profile], list(profile))
+    build(data, out)
+    assert all(not r["uniform_no"] for r in read_csv(out / "player_season.csv"))

@@ -70,6 +70,10 @@ class PoliteSession:
                 if r.status_code >= 500 or r.status_code == 429:
                     raise requests.HTTPError(f"HTTP {r.status_code}", response=r)
                 r.raise_for_status()
+                # KBO 오류 페이지는 charset 헤더 없이 UTF-8 HTML을 주기도 한다.
+                # requests의 ISO-8859-1 기본값으로 읽으면 에러 문구가 깨진다.
+                if "text/html" in r.headers.get("Content-Type", "") and "charset=" not in r.headers.get("Content-Type", "").lower():
+                    r.encoding = "utf-8"
                 return r
             except (requests.ConnectionError, requests.Timeout, requests.HTTPError) as e:
                 self._last = time.monotonic()
@@ -132,7 +136,7 @@ def write_csv(path: Path, rows: Iterable[dict], columns: list[str]) -> int:
     path.parent.mkdir(parents=True, exist_ok=True)
     tmp = path.with_suffix(".tmp")
     with open(tmp, "w", newline="", encoding="utf-8") as f:
-        w = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore")
+        w = csv.DictWriter(f, fieldnames=columns, extrasaction="ignore", lineterminator="\n")
         w.writeheader()
         for r in rows:
             w.writerow({c: ("" if r.get(c) is None else r.get(c)) for c in columns})
@@ -142,6 +146,8 @@ def write_csv(path: Path, rows: Iterable[dict], columns: list[str]) -> int:
 
 def upsert_csv(path: Path, new_rows: list[dict], key: tuple[str, ...], columns: list[str]) -> int:
     """기존 CSV에 새 행을 키 기준으로 덮어쓰며 합친다."""
+    if not new_rows and path.exists():
+        return len(read_csv(path))
     merged = {tuple(str(r.get(k, "")) for k in key): r for r in read_csv(path)}
     for r in new_rows:
         merged[tuple(str(r.get(k, "")) for k in key)] = r
