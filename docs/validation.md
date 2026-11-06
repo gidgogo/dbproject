@@ -81,3 +81,17 @@ FROM player WHERE current_team_name = '상무';
 실측 결과는 [수집 결과](collection_status.md)에 기록한다.
 기존 DB는 `10_kbo_only.sql`로 전환하며, 보관된 과거 투구는 `legacy_naver.pitch`에서 확인한다.
 새 DB에는 네이버 테이블·뷰가 없다.
+
+## 5. 자동 회귀 테스트
+
+```bash
+python -m pytest tests -q -rs
+```
+
+PostgreSQL에 접속할 수 있도록 `PGHOST`, `PGPORT`, `PGUSER`를 설정한다.
+`KBO_TEST_DB`는 테스트 전용 DB 이름으로 지정한다. 해당 DB는 테스트 시작 시 삭제하고 다시 만든다.
+PostgreSQL 없이 실행하면 DB 테스트가 생략되므로 `-rs` 출력에 건너뛴 항목이 없는지 확인한다.
+
+최종 검증은 PostgreSQL 16.2에서 68개 모두 통과했다. 부분 수집 보존, 잘못된 순위 응답 거부,
+프로필 시간순 갱신, 반복 적재, 전환 실패 시 전체 취소 및 보관 자료 보호를 포함한다.
+실제 수집본의 재파싱·재병합·반복 적재 결과는 [수집 결과](collection_status.md)에 기록했다.

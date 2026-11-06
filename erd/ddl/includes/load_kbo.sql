@@ -26,7 +26,9 @@ ON CONFLICT (player_id) DO UPDATE SET
     profile_crawled_at = coalesce(EXCLUDED.profile_crawled_at, player.profile_crawled_at),
     current_team_name = CASE WHEN EXCLUDED.profile_crawled_at IS NOT NULL THEN EXCLUDED.current_team_name ELSE player.current_team_name END,
     current_uniform_no = CASE WHEN EXCLUDED.profile_crawled_at IS NOT NULL THEN EXCLUDED.current_uniform_no ELSE player.current_uniform_no END,
-    profile_source_url = coalesce(EXCLUDED.profile_source_url, player.profile_source_url);
+    profile_source_url = coalesce(EXCLUDED.profile_source_url, player.profile_source_url)
+WHERE EXCLUDED.profile_crawled_at IS NOT NULL
+  AND (player.profile_crawled_at IS NULL OR EXCLUDED.profile_crawled_at >= player.profile_crawled_at);
 
 CREATE TEMP TABLE stg_player_season (LIKE player_season) ON COMMIT DROP;
 \copy stg_player_season FROM 'data/load/player_season.csv' WITH (FORMAT csv, HEADER true)
@@ -42,7 +44,12 @@ CREATE TEMP TABLE stg_player_salary (LIKE player_salary) ON COMMIT DROP;
 INSERT INTO player_salary SELECT * FROM stg_player_salary
 ON CONFLICT (player_id, season) DO UPDATE SET
     salary_10k_krw = EXCLUDED.salary_10k_krw, salary_usd = EXCLUDED.salary_usd,
-    source_text = EXCLUDED.source_text;
+    source_text = EXCLUDED.source_text
+WHERE EXISTS (
+    SELECT 1 FROM stg_player incoming JOIN player current USING (player_id)
+    WHERE incoming.player_id = EXCLUDED.player_id
+      AND incoming.profile_crawled_at >= current.profile_crawled_at
+);
 
 -- 2. 기록실 공식 기록 ---------------------------------------------------
 CREATE TEMP TABLE stg_sbo (LIKE season_batting_official) ON COMMIT DROP;

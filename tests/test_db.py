@@ -230,6 +230,21 @@ def test_kbo_only_loader_needs_no_game_files(loaded_db, load_work, tmp_path):
     assert rows("select to_regclass('public.pitch'), to_regclass('public.v_pitch_mix')") == [["", ""]]
 
 
+def test_scope_upgrade_rolls_back_archive_when_views_fail(loaded_db):
+    psql("create table pitch(id int primary key); insert into pitch values(7); "
+         "create view external_game_report as select * from v_game_summary;")
+    try:
+        result = subprocess.run(['psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB,
+                                 '-f', str(ROOT / 'erd/ddl/10_kbo_only.sql')], cwd=ROOT,
+                                capture_output=True, text=True)
+        assert result.returncode != 0 and 'external_game_report' in result.stderr
+        assert rows('select id from public.pitch') == [['7']]
+        assert rows("select to_regnamespace('legacy_naver') is null") == [['t']]
+        assert rows('select count(*) from v_game_summary') == [['3']]
+    finally:
+        psql('drop view external_game_report; drop table public.pitch;')
+
+
 def test_scope_upgrade_archives_legacy_data(loaded_db):
     # Minimal pre-change objects; preserved content and view dependencies matter here.
     psql("create table pitch_type(id int primary key); create table pitch_result(id int primary key); "
@@ -244,3 +259,49 @@ def test_scope_upgrade_archives_legacy_data(loaded_db):
     assert rows("select n from legacy_naver.v_pitch_mix") == [["1"]]
     assert rows("select to_regclass('public.pitch') is null") == [["t"]]
     assert rows("select count(*) from player union all select count(*) from game") == before
+
+
+def test_profile_reloads_preserve_newest_profile_and_salary(loaded_db, tmp_path):
+    from crawl.common import write_csv
+    from etl.crawl_to_tables import build
+    source = tmp_path / 'source'
+    pid = 900101
+    mapping = dict(player_id=pid, season=2025, team_id='OB', name='예전이름', is_batter=1, is_pitcher=0)
+    write_csv(source / 'player_season_team.csv', [mapping], list(mapping))
+    profile = dict(player_id=pid, player_name='현재이름', team_name='상무', uniform_no='01',
+                   is_retired='true', crawled_at='2026-11-06T12:00:00+09:00',
+                   salary_season=2026, salary_10k_krw=5000, salary_text='5000만원')
+    def reload():
+        build(source, tmp_path / 'data/load')
+        psql_file(ROOT / 'erd/ddl/11_load_kbo.sql', tmp_path)
+    def state():
+        return rows(f"select player_name,is_retired,current_team_name,current_uniform_no,"
+                    f"profile_crawled_at::date from player where player_id={pid}")
+    write_csv(source / 'players.csv', [profile], list(profile))
+    reload()
+    expected = [['현재이름', 't', '상무', '01', '2026-11-06']]
+    assert state() == expected
+    (source / 'players.csv').unlink()
+    reload()  # Missing profile cannot imply active status or a current name change.
+    assert state() == expected
+    profile.update(player_name='예전이름', team_name='두산 베어스', uniform_no='99',
+                   is_retired='false', crawled_at='2025-06-01T12:00:00+09:00', salary_10k_krw=1000)
+    write_csv(source / 'players.csv', [profile], list(profile))
+    reload()
+    assert state() == expected
+    assert rows(f'select salary_10k_krw from player_salary where player_id={pid} and season=2026') == [['5000']]
+    profile.update(player_name='최신이름', team_name='LG 트윈스', uniform_no='02',
+                   is_retired='false', crawled_at='2026-11-07T12:00:00+09:00', salary_10k_krw=6000)
+    write_csv(source / 'players.csv', [profile], list(profile))
+    reload()
+    assert state() == [['최신이름', 'f', 'LG 트윈스', '02', '2026-11-07']]
+    assert rows(f'select salary_10k_krw from player_salary where player_id={pid} and season=2026') == [['6000']]
+
+
+def test_full_reset_refuses_archived_data(loaded_db):
+    before = rows('select count(*) from legacy_naver.pitch union all select count(*) from player')
+    result = subprocess.run(['psql', '-X', '-q', '-v', 'ON_ERROR_STOP=1', '-d', DB,
+                             '-f', str(ROOT / 'erd/ddl/99_drop_all.sql')], cwd=ROOT,
+                            capture_output=True, text=True)
+    assert result.returncode != 0 and '보관 자료' in result.stderr
+    assert rows('select count(*) from legacy_naver.pitch union all select count(*) from player') == before

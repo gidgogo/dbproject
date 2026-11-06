@@ -1,3 +1,12 @@
+-- 보관 스키마가 있는 DB는 삭제 대상이 아니다. 새 개발 DB를 사용한다.
+\set ON_ERROR_STOP on
+BEGIN;
+DO $$ BEGIN
+    IF EXISTS (SELECT 1 FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace
+               WHERE n.nspname='legacy_naver' AND c.relkind='r') THEN
+        RAISE EXCEPTION 'legacy_naver 보관 자료가 있는 DB에는 전체 삭제를 실행할 수 없습니다';
+    END IF;
+END $$;
 -- 개발용: 이 프로젝트가 만든 객체를 모두 지운다 (데이터도 삭제됨, 주의)
 DROP MATERIALIZED VIEW IF EXISTS mv_team_standings, mv_season_pitching, mv_season_batting CASCADE;
 DROP TABLE IF EXISTS
@@ -11,3 +20,5 @@ DROP FUNCTION IF EXISTS fn_team_game_check_side(), fn_refresh_stats(),
     fn_ip_display(numeric) CASCADE;
 DROP DOMAIN IF EXISTS d_team_id, d_player_id, d_game_id, d_season, d_inning, d_count,
     d_total, d_outs, d_rate, d_slg, d_era, d_hand, d_person_name CASCADE;
+
+COMMIT;

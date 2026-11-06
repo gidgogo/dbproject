@@ -14,10 +14,11 @@
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from datetime import date, datetime
 from pathlib import Path
+
+import requests
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -38,6 +39,26 @@ def last_game_date(season: int) -> date:
     return date.fromisoformat(max(dates)) if dates else date(season, 10, 31)
 
 
+def validate_rank(rows: list[dict], season: int, ref: Reference) -> None:
+    expected = ref.teams_for_season(season)
+    teams = [r["team_id"] for r in rows]
+    if not expected or set(teams) != expected or len(teams) != len(expected):
+        raise ValueError(f"{season} 순위표 팀 누락·중복·기준 정보 없음: 예상 {sorted(expected)}, 실제 {teams}")
+    for row in rows:
+        for field in ("rank", "games", "wins", "losses", "draws"):
+            value = row.get(field)
+            if not isinstance(value, int) or value < 0:
+                raise ValueError(f"{row['team_id']}: 필수 정수 {field} 누락/오류")
+        if not 1 <= row["rank"] <= len(expected):
+            raise ValueError(f"{row['team_id']}: 순위 범위 오류")
+        if row["wins"] + row["losses"] + row["draws"] != row["games"]:
+            raise ValueError(f"{row['team_id']}: 경기 수와 승패무 합계 불일치")
+        rate, gb = row.get("win_pct"), row.get("games_behind")
+        if (rate is None and row["wins"] + row["losses"] > 0
+                or rate is not None and not 0 <= rate <= 1 or gb is None or not gb >= 0):
+            raise ValueError(f"{row['team_id']}: 승률/게임차 누락 또는 범위 오류")
+
+
 def fetch(session: PoliteSession, d: date, ref: Reference) -> list[dict]:
     client = PostbackClient(session, PATH)
     client.get()
@@ -47,22 +68,22 @@ def fetch(session: PoliteSession, d: date, ref: Reference) -> list[dict]:
     html = client.postback(None, {"hfSearchDate": ymd}, extra=extra)
     save_text(RAW / "kbo" / "team_rank" / f"{ymd}.html", html)
     shown = form_fields(html).get(find_name(form_fields(html), "hfSearchDate") or "", "")
-    as_of = date(int(shown[:4]), int(shown[4:6]), int(shown[6:8])) if re.fullmatch(r"\d{8}", shown) else d
-    if as_of != d:
-        log.warning("요청 기준일 %s 대신 %s 기준 순위가 왔음", d, as_of)
+    if shown != ymd:
+        raise ValueError(f"요청 기준일 {ymd} 확인 실패: {shown!r}")
+    as_of = d
     now = datetime.now().astimezone().isoformat(timespec="seconds")
     rows = []
     for r in parse_team_rank(html):
         team_id = ref.team_id(r.get("team_name"), as_of.year)
         if not team_id:
-            log.warning("팀명 해석 실패: %s", r.get("team_name"))
-            continue
+            raise ValueError(f"팀명 해석 실패: {r.get('team_name')}")
         gb = r.get("games_behind", "")
         rows.append({**r, "season": as_of.year, "as_of_date": as_of.isoformat(), "team_id": team_id,
                      "rank": to_number(r.get("rank")), "games": to_number(r.get("games")),
                      "wins": to_number(r.get("wins")), "losses": to_number(r.get("losses")),
                      "draws": to_number(r.get("draws")), "win_pct": to_number(r.get("win_pct")),
                      "games_behind": 0.0 if gb in ("", "-", "0") else to_number(gb), "crawled_at": now})
+    validate_rank(rows, as_of.year, ref)
     return rows
 
 
@@ -78,10 +99,14 @@ def main(argv: list[str] | None = None) -> int:
     if not days:
         ap.error("--seasons 또는 --dates 가 필요합니다")
     ref, session, all_rows = Reference.load(), PoliteSession(BASE), []
-    for d in days:
-        rows = fetch(session, d, ref)
-        log.info("%s 기준 %d개 팀", d, len(rows))
-        all_rows += rows
+    try:
+        for d in days:
+            rows = fetch(session, d, ref)
+            log.info("%s 기준 %d개 팀", d, len(rows))
+            all_rows += rows
+    except (RuntimeError, ValueError, KeyError, requests.RequestException) as exc:
+        log.error("순위 수집 미완료: %s (기존 CSV 보존)", exc)
+        return 1
     n = upsert_csv(DATA / "team_rank.csv", all_rows, ("season", "as_of_date", "team_id"), COLS)
     log.info("data/team_rank.csv 총 %d행", n)
     return 0

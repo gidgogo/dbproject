@@ -65,6 +65,9 @@ class Reference:
             return self.team_by_season_name[(season, key)]
         return TEAM_ALIASES.get(key)
 
+    def teams_for_season(self, season: int) -> set[str]:
+        return {team for (year, _), team in self.team_by_season_name.items() if year == season}
+
     def stadium_id(self, place: str | None, season: int) -> int | None:
         key = (place or "").strip()
         for p, frm, to, sid in self.place_rules:

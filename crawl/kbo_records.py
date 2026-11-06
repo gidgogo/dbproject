@@ -22,10 +22,13 @@
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from collections import defaultdict
 from datetime import datetime
 from pathlib import Path
+
+import requests
 
 if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -191,45 +194,87 @@ def crawl(seasons: list[int], teams_filter: list[str] | None, kinds: list[str], 
                     log.info("  → %d명 (요청 누계 %d)", len(rows), session.count)
 
 
-def merge() -> dict[str, int]:
-    """단위별 CSV → data/player_season_team.csv, season_batting.csv, season_pitching.csv"""
-    merged: dict[str, dict[tuple, dict]] = {"hitter": {}, "pitcher": {}}
-    for csv_path in sorted(OUT_DIR.glob("*/*.csv")):
-        kind = "pitcher" if "_pitcher_" in csv_path.name else "hitter"
-        for r in read_csv(csv_path):
-            key = (r["season"], r["team_id"], r["player_id"])
-            merged[kind].setdefault(key, {}).update({k: v for k, v in r.items() if v != ""})
+def merge(*, require_complete: bool = False) -> dict[str, int]:
+    """ID 목록은 부분 수집도 반영하되 시즌 기록은 완료된 Basic1/2 쌍만 갱신한다."""
+    ckpt = Checkpoint(OUT_DIR / "_done.json")
+    units: dict[tuple[str, str, str], dict[str, list[dict]]] = defaultdict(dict)
+    incomplete = []
+    for path in sorted(OUT_DIR.glob("*/*.csv")):
+        match = re.fullmatch(r"([A-Z]{2}|ALL)_(hitter|pitcher)_(basic[12])", path.stem)
+        if not match:
+            continue
+        team, kind, page = match.groups()
+        season = path.parent.name
+        if f"{season}|{team}|{kind}|{page}" not in ckpt:
+            incomplete.append(f"{season}/{team}/{kind}/{page}: 완료 표시 없음")
+            continue
+        rows = read_csv(path)
+        keys = [(r.get("team_id"), r.get("player_id")) for r in rows]
+        if (len(keys) != len(set(keys)) or any(not all(k) for k in keys)
+                or any(r.get("season") != season or (team != "ALL" and r.get("team_id") != team)
+                       for r in rows)):
+            raise RuntimeError(f"{path}: 중복·빈 키 또는 시즌/팀 불일치")
+        units[(season, team, kind)][page] = rows
 
-    pst: dict[tuple, dict] = defaultdict(dict)
-    for kind, flag in (("hitter", "is_batter"), ("pitcher", "is_pitcher")):
-        for (season, team, pid), r in merged[kind].items():
-            row = pst[(season, team, pid)]
-            row.update(season=season, team_id=team, player_id=pid, name=r.get("name", ""))
-            row.setdefault("is_batter", 0)
-            row.setdefault("is_pitcher", 0)
-            row[flag] = 1
+    if require_complete and not units:
+        raise RuntimeError("병합할 완료 단위 CSV가 없습니다")
 
-    bat_rows = []
-    for r in merged["hitter"].values():
-        out = {k: r.get(k) for k in BAT_COLS}
-        for k in BAT_COLS[4:-1]:
-            out[k] = to_number(r.get(k))
-        bat_rows.append(out)
-    pit_rows = []
-    for r in merged["pitcher"].values():
-        out = {k: r.get(k) for k in PIT_COLS}
-        for k in PIT_COLS[4:-1]:
-            if k != "ip_text":
-                out[k] = to_number(r.get(k))
-        out["outs_recorded"] = ip_to_outs(r.get("ip_text"))
-        pit_rows.append(out)
+    # 부분 수집에서 기존 타자/투수 역할을 false로 되돌리지 않는다.
+    pst = {(r["season"], r["team_id"], r["player_id"]): r
+           for r in read_csv(DATA / "player_season_team.csv")}
+    complete: dict[str, dict[tuple, dict]] = {"hitter": {}, "pitcher": {}}
+    for (season, team, kind), pages in units.items():
+        for rows in pages.values():
+            for r in rows:
+                key = (season, r["team_id"], r["player_id"])
+                current = pst.setdefault(key, dict(season=season, team_id=r["team_id"],
+                                                   player_id=r["player_id"], is_batter=0, is_pitcher=0))
+                current.update(name=r.get("name", ""))
+                current["is_batter" if kind == "hitter" else "is_pitcher"] = 1
+        if set(pages) != {"basic1", "basic2"}:
+            incomplete.append(f"{season}/{team}/{kind}: Basic1/2 중 일부만 완료")
+            continue
+        one, two = ({(r["team_id"], r["player_id"]): r for r in pages[p]}
+                    for p in ("basic1", "basic2"))
+        if one.keys() != two.keys():
+            incomplete.append(f"{season}/{team}/{kind}: Basic1/2 선수 목록 불일치")
+            continue
+        combined = []
+        for key in one:
+            left, right = one[key], two[key]
+            shared = {k for k in left.keys() & right.keys()
+                      if k not in {"crawled_at", "detail_kind"} and left[k] != "" and right[k] != ""}
+            if any(left[k] != right[k] for k in shared):
+                incomplete.append(f"{season}/{team}/{kind}: Basic1/2 공통 값 불일치")
+                break
+            combined.append({**left, **{k: v for k, v in right.items() if v != ""}})
+        else:
+            for r in combined:
+                complete[kind][(season, r["team_id"], r["player_id"])] = r
+
+    bat_rows, pit_rows = [], []
+    for kind, cols, output in (("hitter", BAT_COLS, bat_rows), ("pitcher", PIT_COLS, pit_rows)):
+        for r in complete[kind].values():
+            out = {k: r.get(k) for k in cols}
+            for k in cols[4:-1]:
+                if k != "ip_text":
+                    out[k] = to_number(r.get(k))
+            if kind == "pitcher":
+                out["outs_recorded"] = ip_to_outs(r.get("ip_text"))
+            output.append(out)
 
     key = ("season", "team_id", "player_id")
-    return {
+    counts = {
         "player_season_team": upsert_csv(DATA / "player_season_team.csv", list(pst.values()), key, PST_COLS),
         "season_batting": upsert_csv(DATA / "season_batting.csv", bat_rows, key, BAT_COLS),
         "season_pitching": upsert_csv(DATA / "season_pitching.csv", pit_rows, key, PIT_COLS),
     }
+    if incomplete:
+        message = "시즌 기록 갱신 보류: " + "; ".join(incomplete)
+        if require_complete:
+            raise RuntimeError(message)
+        log.warning(message)
+    return counts
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -237,7 +282,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seasons", default="2025", help="예: 2025 / 2021-2025 / 2023,2025")
     ap.add_argument("--teams", default="", help="팀코드 쉼표 구분(OB,LG). ALL = 팀 구분 없이 리그 전체")
     ap.add_argument("--kinds", default="hitter,pitcher")
-    ap.add_argument("--pages", default="basic1,basic2", help="basic1만 받으면 playerId 목록과 기본 기록")
+    ap.add_argument("--pages", default="basic1,basic2", help="basic1만 받으면 ID 목록만 갱신; 시즌 기록은 Basic1/2 완료 후 갱신")
     ap.add_argument("--merge-only", action="store_true")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args(argv)
@@ -247,12 +292,17 @@ def main(argv: list[str] | None = None) -> int:
         if not args.merge_only:
             teams = [t.strip() for t in args.teams.split(",") if t.strip()] or None
             crawl(season_list(args.seasons), teams, args.kinds.split(","), args.pages.split(","), Reference.load())
-    except (RuntimeError, KeyError) as exc:
+    except (RuntimeError, KeyError, requests.RequestException) as exc:
         log.error("수집 미완료: %s (성공한 단위는 보존, 같은 명령으로 재시도)", exc)
         status = 1
     finally:
-        for name, n in merge().items():
-            log.info("%-20s %6d행 → data/%s.csv", name, n, name)
+        try:
+            counts = merge(require_complete=set(args.pages.split(",")) == {"basic1", "basic2"})
+            for name, n in counts.items():
+                log.info("%-20s %6d행 → data/%s.csv", name, n, name)
+        except (RuntimeError, KeyError) as exc:
+            log.error("병합 미완료: %s", exc)
+            status = 1
     return status
 
 

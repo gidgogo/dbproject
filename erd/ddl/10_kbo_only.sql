@@ -32,6 +32,6 @@ COMMENT ON COLUMN player_season.uniform_no IS '시즌등번호: 별도 시즌 �
 COMMENT ON COLUMN game.kbo_game_id     IS 'KBO경기ID: KBO 게임센터 G_ID (밑줄 제거, 생성 컬럼)';
 COMMENT ON TABLE  season_batting_official IS '시즌타자기록(공식): KBO 기록실 시즌 누적 값. 화면에 직접 조회하고 경기 집계와 비교·검증한다';
 COMMENT ON TABLE  season_pitching_official IS '시즌투수기록(공식): KBO 기록실 시즌 누적 값 (화면 조회 및 경기 집계 검증용)';
+-- 뷰 교체가 실패하면 보관 이동·컬럼 변경도 함께 롤백한다.
+\ir includes/rebuild_views.sql
 COMMIT;
--- 최신 박스스코어 계산 뷰로 교체 (별도 트랜잭션, 원본 데이터 보존).
-\ir 09_upgrade_views.sql
