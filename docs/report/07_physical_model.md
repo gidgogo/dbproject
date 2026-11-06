@@ -1,29 +1,30 @@
 # 7. 물리적 데이터 모델
 
-> 담당: 이성수·김경주 · 초안 v0 (2026-11-05) · DDL: `erd/ddl/` · 테이블 기술서: `docs/report/10_table_spec.md`(자동 생성)
+> 담당: 이성수·김경주 · KBO 중심 수정본 (2026-11-06) · DDL: `erd/ddl/` · 테이블 기술서: `docs/report/10_table_spec.md`(자동 생성)
 
 ## 7.1 DBMS와 객체 구성
 
 - PostgreSQL 16에서 실행 확인 (14 이상이면 동작). 스키마는 기본 `public`.
-- 초기 스키마는 `erd/ddl/00_create_all.sql`로 01~06을 실행한다. 데이터 적재(07~08), 기존 DB 뷰 갱신(09), 전체 삭제(99)는 별도로 실행한다.
+- 초기 스키마는 `erd/ddl/00_create_all.sql`로 01~06을 실행한다. 통합 적재(07), 뷰 갱신(09), 기존 DB 전환(10), KBO 전용 적재(11), 개발용 전체 삭제(99)는 별도로 실행한다.
 
 | 파일 | 내용 | 개수 |
 |---|---|---|
 | 01_domains.sql | 도메인 (자료형 + CHECK) | 13 |
-| 02_tables.sql | 테이블, PK·FK·UNIQUE·CHECK, 컬럼 주석 | 테이블 24, FK 34 |
-| 03_indexes.sql | 조회용 보조 인덱스 | 15 (+ MV 인덱스 5) |
+| 02_tables.sql | 테이블, PK·FK·UNIQUE·CHECK, 컬럼 주석 | 테이블 21, FK 29 |
+| 03_indexes.sql | 조회용 보조 인덱스 | 13 (+ MV 인덱스 5) |
 | 04_triggers.sql | 팀경기기록 홈/원정 일치 트리거 | 1 |
-| 05_views.sql | 화면용 뷰·MV, 검증 뷰, 함수 | 뷰 18, MV 3, 함수 3 (+트리거 함수 1) |
+| 05_views.sql | 화면용 뷰·MV, 검증 뷰, 함수 | 뷰 16, MV 3, 함수 2 (+트리거 함수 1) |
 | 06_reference_data.sql | 기준 데이터 적재 (data/reference) | |
-| 07_load_data.sql / 08_load_pitch.sql | 수집 데이터 적재 (재실행 안전) | |
+| 07_load_data.sql / 11_load_kbo.sql | 수집 데이터 적재 (재실행 안전) | |
 | 09_upgrade_views.sql | 기존 데이터를 보존하며 수정된 뷰 적용 | |
+| 10_kbo_only.sql | 네이버 객체를 보관 영역으로 이동, 현재 프로필 컬럼 추가 후 뷰 갱신 | |
 | 99_drop_all.sql | 개발용 전체 삭제 | |
 
 ## 7.2 명명 규칙 🟡 (김경주와 합의 필요)
 
 - 테이블·컬럼: 영어 소문자 snake_case, 테이블은 단수형 (`player`, `batter_game`)
 - 식별자 컬럼: `<엔터티>_id` (`player_id`, `game_id`), 코드 컬럼: `_code`, 여부: `is_` 접두어
-- 횟수: 복수형 영어 (`hits`, `at_bats`), 단위가 있으면 접미어 (`height_cm`, `speed_kmh`, `salary_10k_krw`)
+- 횟수: 복수형 영어 (`hits`, `at_bats`), 단위가 있으면 접미어 (`height_cm`, `salary_10k_krw`)
 - 제약조건: `pk_<표>`, `fk_<표>_<부모>`, `uq_<표>_<컬럼>`, `ck_<표>_<내용>`, 인덱스 `ix_<표>_<컬럼>`
 - 공식(기록실) 저장 테이블은 `_official`, 뷰는 `v_`, 머티리얼라이즈드 뷰는 `mv_` 접두어
 
@@ -39,7 +40,6 @@
   부동소수(`real`)는 반올림 오차 때문에 쓰지 않았다.
 - 경기 단위 횟수는 `smallint`(최대 32767), 시즌 누적은 `integer`.
 - 돈: 원화는 **만원 단위 정수**(`salary_10k_krw`), 외국인 달러 연봉은 별도 컬럼(`salary_usd`) — 한 컬럼에 단위가 섞이지 않게.
-- 투구 좌표는 원본(PITCHf/x) 단위인 **피트(ft)** 그대로 `numeric(6,3)`.
 
 ## 7.4 무결성 제약
 
@@ -52,7 +52,6 @@
 | 홈팀 ≠ 원정팀, 더블헤더 0~2 | `ck_game_teams`, `ck_game_doubleheader` |
 | 경기ID = 날짜_원정팀홈팀더블헤더 | `ck_game_id_parts` (지능형 키 일관성) |
 | 승패는 W/L/D, 투수 결정은 W/L/S/H | `ck_team_game_result`, `ck_pitcher_game_decision` |
-| 볼카운트 0~3 / 0~2, 구속 50~175km/h | `ck_pitch_count`, `ck_pitch_speed` |
 | 안타 유형이면 루타 > 0 이고 타수 포함 | `ck_pa_result_type_hit`, `ck_pa_result_type_ab` |
 | 순위표 승+패+무 = 경기 | `ck_tro_games` |
 
@@ -65,14 +64,14 @@
 
 | 관계 유형 | 정책 | 예 | 이유 |
 |---|---|---|---|
-| 부모가 없으면 의미 없는 하위 기록 | ON DELETE **CASCADE** | 경기 → 팀경기기록 → 타자경기기록 → 타석 | 경기 삭제 시 하위 기록 정리. 재적재는 경기를 갱신하고 팀경기기록 이하만 교체하므로 별도 출처인 투구를 보존 |
+| 부모가 없으면 의미 없는 하위 기록 | ON DELETE **CASCADE** | 경기 → 팀경기기록 → 타자경기기록 → 타석 | 경기 삭제 시 하위 기록 정리. 재적재는 경기를 갱신하고 해당 경기의 박스스코어 하위 기록만 교체 |
 | 다른 기록이 참조하는 기준 정보 | ON DELETE **RESTRICT** | 선수, 팀, 타석결과코드 | 경기 기록이 있는 선수를 실수로 지우면 기록이 고아가 됨 → 막는다 |
 | 없어도 되는 선택 정보 | ON DELETE **SET NULL** | 구장, 경기기타기록의 선수 | 구장 정보를 지워도 경기는 남아야 함 |
 | 식별자 값 수정 | ON UPDATE **CASCADE** | 선수ID 정정 | playerId 매핑 오류를 고치면 하위 기록에 자동 반영 |
 | 생성 컬럼이 들어간 FK | NO ACTION | 경기(팀ID, 시즌) → 팀시즌 | 생성 컬럼은 CASCADE로 바꿀 수 없음 |
 
 테스트(`tests/test_db.py`)에서 경기 삭제 시 CASCADE, 기록 있는 선수 삭제 시 RESTRICT 거부를 확인했다.
-재적재 후 기존 투구 보존과 불완전한 스코어보드 적재 시 전체 롤백도 검증한다.
+KBO 전용 적재의 경기 보존, 기존 네이버 자료의 보관 전환, 불완전한 스코어보드의 전체 롤백도 검증한다.
 일반 FK는 자식 2행의 존재를 강제하지 않으므로 적재 커밋 전 별도 검사하고,
 `v_check_game_result`는 직접 수정으로 생긴 홈·원정 누락도 탐지한다.
 
@@ -88,13 +87,15 @@ PK·UNIQUE는 자동 인덱스가 생긴다. 복합 PK `(game_id, player_id)`는
 | 선수 프로필: 선수의 경기 기록 | `player_id = ?` | `ix_batter_game_player`, `ix_pitcher_game_player` |
 | 선수 프로필: 선수의 타석 집계 (2루타·홈런·볼넷…) | `plate_appearance.player_id = ?` | `ix_pa_player` (성능 확인 중 발견해 추가, 7.8) |
 | 선수 검색·이름 매핑 | `player_name = ?`, `(season, team_id, name_in_season)` | `ix_player_name`, `ix_player_season_lookup` |
-| 시각화: 투수의 구종별 투구 | `pitcher_id = ? (AND pitch_type_ko = ?)` | `ix_pitch_pitcher` |
 | 시즌 성적 MV | `(player_id, season, team_id)` | MV 유니크 인덱스 (REFRESH CONCURRENTLY 가능) |
 
 성능 확인: `tools/perf_check.sql` 로 한 시즌 규모 가상 데이터에서 인덱스 사용 여부를 `EXPLAIN ANALYZE`로 확인한다
 (결과는 7.8).
 
 ## 7.6 뷰 / 머티리얼라이즈드 뷰
+
+현재 공식 기록 화면은 `season_batting_official`, `season_pitching_official`, `team_rank_official`을 직접 조회한다.
+아래 경기 기반 뷰·MV는 박스스코어 적재 후 사용한다. 공식 표와 경기 집계를 조용히 혼합하지 않는다.
 
 | 이름 | 종류 | 용도 |
 |---|---|---|
@@ -105,8 +106,7 @@ PK·UNIQUE는 자동 인덱스가 생긴다. 복합 PK `(game_id, player_id)`는
 | mv_team_standings | MV | 순위·승률·게임차·최근10경기·연속 (윈도 함수) |
 | v_team_head_to_head | 뷰 | 상대 전적 |
 | v_spray_chart | 뷰 | 타구 방향(5구역) × 결과 유형 |
-| v_pitch_detail, v_pitch_mix | 뷰 | 존 구역(Statcast 1~9, 11~14), 구종 비율·구속·헛스윙률 |
-| v_batting_percentile | 뷰 | 규정타석 이상 타자 백분위 (Savant 퍼센타일 막대) |
+| v_batting_percentile | 뷰 | 규정타석 이상 타자 백분위 (경기 데이터 적재 후 사용) |
 | v_check_* | 검증 뷰 | 행이 나오면 데이터 문제 (득점 합, 안타 합, 타석 변환, 승패, 투수 결정) |
 | v_compare_* | 검증 뷰 | 기록실 공식 값 vs 계산 값 (일치율) |
 

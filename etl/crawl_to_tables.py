@@ -26,7 +26,8 @@ ROOT = Path(__file__).resolve().parents[1]
 
 PLAYER_COLS = ["player_id", "player_name", "birth_date", "height_cm", "weight_kg", "throws", "bats",
                "position", "career", "draft_info", "draft_year", "join_info", "join_year",
-               "signing_bonus_10k", "is_retired", "profile_crawled_at"]
+               "signing_bonus_10k", "is_retired", "profile_crawled_at",
+               "current_team_name", "current_uniform_no", "profile_source_url"]
 PLAYER_SEASON_COLS = ["player_id", "season", "team_id", "name_in_season", "is_batter", "is_pitcher", "uniform_no"]
 SALARY_COLS = ["player_id", "season", "salary_10k_krw", "salary_usd", "source_text"]
 BAT_COLS = ["player_id", "season", "team_id", "games", "plate_appearances", "at_bats", "runs", "hits",
@@ -84,8 +85,15 @@ def build(data_dir: Path, out_dir: Path) -> dict[str, int]:
                         or players.get(pid, {}).get("player_name")}
         players[pid]["is_retired"] = "true" if truthy(p.get("is_retired")) else "false"
         players[pid]["profile_crawled_at"] = p.get("crawled_at") or p.get("profile_crawled_at")
+        # 이전 수집 CSV의 KBO 미등록 표기(0cm/0kg)도 NULL로 적재한다.
+        for field in ("height_cm", "weight_kg"):
+            if str(players[pid].get(field, "")).strip() == "0":
+                players[pid][field] = None
+        players[pid]["current_team_name"] = p.get("team_name")
+        players[pid]["current_uniform_no"] = p.get("uniform_no")
+        players[pid]["profile_source_url"] = p.get("source_url")
 
-    # player_season: 목록(+기록실) 합치기, 등번호는 상세의 현재 시즌·현재 팀에만 -------
+    # player_season: 목록(+기록실) 합치기. 현재 프로필을 과거 시즌에 소급하지 않는다 -------
     ps: dict[tuple, dict] = {}
     for r in pst:
         key = (r["player_id"], r["season"], r["team_id"])
@@ -99,10 +107,6 @@ def build(data_dir: Path, out_dir: Path) -> dict[str, int]:
             cur = ps.setdefault(key, {"player_id": r["player_id"], "season": r["season"], "team_id": r["team_id"],
                                       "name_in_season": r.get("name", ""), "is_batter": False, "is_pitcher": False})
             cur[flag] = True
-    for p in profiles.values():
-        season, team, no = p.get("salary_season"), p.get("team_id"), p.get("uniform_no")
-        if season and team and no and (p["player_id"], season, team) in ps:
-            ps[(p["player_id"], season, team)]["uniform_no"] = no
     for v in ps.values():
         v["is_batter"] = "true" if v["is_batter"] else "false"
         v["is_pitcher"] = "true" if v["is_pitcher"] else "false"

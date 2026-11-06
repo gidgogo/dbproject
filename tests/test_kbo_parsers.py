@@ -228,3 +228,20 @@ def test_advertised_empty_page_is_not_accepted(tmp_path):
     client.get()
     with pytest.raises(RuntimeError, match="안내된 2페이지"):
         collect_pages(client, HITTER_COLUMNS, tmp_path / "record")
+
+
+def test_sort_new_team_starts_at_first_page():
+    from crawl.kbo_records import sort_by_games
+    page = record_page([]).replace('</form>', f'<input type="hidden" name="{P}hfPage" value="2" /></form>')
+    fake = FakeSession([page, record_page([])])
+    client = PostbackClient(fake, "/record")
+    client.get()
+    assert sort_by_games(client)
+    assert fake.posts[0][P + "hfPage"] == "1"
+
+
+def test_unregistered_body_measurements_are_missing():
+    from crawl.kbo_parsers import parse_height_weight
+    assert parse_height_weight("0cm/0kg") == (None, None)
+    assert parse_height_weight("190cm/0kg") == (190, None)
+    assert parse_height_weight("0cm/86kg") == (None, 86)

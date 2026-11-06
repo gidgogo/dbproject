@@ -61,22 +61,6 @@ def loaded_db(load_work):
     # 같은 파일을 두 번 적재해도 결과가 같아야 한다(재실행 안전)
     psql_file(ROOT / "erd/ddl/07_load_data.sql", cwd=work)
 
-    # 네이버 투구(가상 문자중계) → CSV → 적재
-    sys.path.insert(0, str(ROOT))
-    sys.path.insert(0, str(ROOT / "tests" / "fixtures"))
-    from crawl.common import write_csv
-    from crawl.naver_relay import COLS, IdResolver, to_csv_rows
-    from etl.player_mapper import PlayerMapper
-    from naver_relay_synthetic import INNINGS, SCHEDULE_GAME
-    mapper = PlayerMapper.from_files(fx / "data/player_season_team.csv")
-    resolver = IdResolver(2025, mapper, set())  # pcode 직접 매칭 대신 이름 매칭 경로를 시험
-    pitches_csv = work / "pitches_2025_OB.csv"
-    write_csv(pitches_csv, to_csv_rows(SCHEDULE_GAME, INNINGS, resolver), COLS)
-    other_team_csv = work / "pitches_2025_WO.csv"
-    shutil.copyfile(pitches_csv, other_team_csv)
-    subprocess.run([sys.executable, str(ROOT / "etl/pitches_to_tables.py"), str(pitches_csv), str(other_team_csv),
-                    "--out", str(load / "pitch.csv")], check=True, capture_output=True)
-    psql_file(ROOT / "erd/ddl/08_load_pitch.sql", cwd=work)
     return json.loads((fx / "raw_games.json").read_text(encoding="utf-8"))
 
 
@@ -164,28 +148,10 @@ def test_cascade_delete_game(loaded_db):
          "then raise exception 'cascade 실패'; end if; end $$; rollback;")
 
 
-def test_pitch_views(loaded_db):
-    assert rows("select count(*) from pitch") == [["7"]]
-    # WO가상투수갑: 직구 3(볼·타격·볼 → 스윙 1, 헛스윙 0), 슬라이더 1(루킹), 포크 1(헛스윙)
-    r = rows("select pitch_type_ko, pitches, usage_pct, avg_speed_kmh, whiff_pct from v_pitch_mix "
-             "where pitcher_id = 900211 order by pitches desc, pitch_type_ko")
-    assert r == [["직구", "3", "60.0", "145.0", "0.0"], ["슬라이더", "1", "20.0", "132.0", ""],
-                 ["포크", "1", "20.0", "130.0", "100.0"]]
-    # 대타 타석의 투구는 대타(900103)에게 기록
-    assert rows("select batter_id from pitch where at_bat_no = 2 and pitch_no = 2") == [["900103"]]
-    # 존 구역: 좌표 -0.9ft 는 존 밖(왼쪽), 0.2ft 는 존 안
-    r = rows("select pitch_seq, zone from v_pitch_detail where pitch_seq in (1, 2) order by pitch_seq")
-    assert r[0][1] in ("11", "13") and 1 <= int(r[1][1]) <= 9
-
-
-def test_reloading_box_scores_preserves_pitches(loaded_db, load_work):
-    before = rows("select row_to_json(p)::text from pitch p order by game_id, pitch_seq")
-    events = rows("select count(*) from game_event")
-    umpires = rows("select count(*) from game_umpire")
+def test_reloading_box_scores_preserves_counts(loaded_db, load_work):
+    before = rows("select count(*) from game union all select count(*) from game_event union all select count(*) from game_umpire")
     psql_file(ROOT / "erd/ddl/07_load_data.sql", cwd=load_work)
-    assert before and rows("select row_to_json(p)::text from pitch p order by game_id, pitch_seq") == before
-    assert rows("select count(*) from game_event") == events
-    assert rows("select count(*) from game_umpire") == umpires
+    assert rows("select count(*) from game union all select count(*) from game_event union all select count(*) from game_umpire") == before
 
 
 def test_official_rates_are_weighted_across_teams(loaded_db):
@@ -229,23 +195,52 @@ def test_standings_use_unrounded_win_percentage(loaded_db):
 
 
 def test_view_upgrade_preserves_data_and_is_repeatable(loaded_db):
-    before = rows("select count(*) from pitch")
+    before = rows("select count(*) from player")
     for _ in range(2):
         psql_file(ROOT / "erd/ddl/09_upgrade_views.sql", cwd=ROOT)
-    assert rows("select count(*) from pitch") == before
+    assert rows("select count(*) from player") == before
     assert rows("select count(*) from v_game_summary") == [["3"]]
 
 
-def test_incomplete_box_scores_roll_back_without_losing_pitches(loaded_db, load_work, tmp_path):
+def test_incomplete_box_scores_roll_back_without_losing_data(loaded_db, load_work, tmp_path):
     shutil.copytree(load_work / "data", tmp_path / "data")
     # 경기만 있고 스코어보드·하위 기록이 없는 실패한 수집 결과.
     for name in ("team_game", "inning_score", "batter_game", "plate_appearance", "pitcher_game",
                  "game_event", "game_umpire_stage"):
         path = tmp_path / "data/load" / f"{name}.csv"
         path.write_text(path.read_text().splitlines()[0] + "\n")
-    before = rows("select count(*) from pitch union all select count(*) from team_game")
+    before = rows("select count(*) from player union all select count(*) from team_game")
     result = subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", DB,
                              "-f", str(ROOT / "erd/ddl/07_load_data.sql")],
                             cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode != 0 and "팀경기기록" in result.stderr
-    assert rows("select count(*) from pitch union all select count(*) from team_game") == before
+    assert rows("select count(*) from player union all select count(*) from team_game") == before
+
+
+def test_kbo_only_loader_needs_no_game_files(loaded_db, load_work, tmp_path):
+    load = tmp_path / "data/load"
+    load.mkdir(parents=True)
+    for name in ("player", "player_season", "player_salary", "season_batting_official",
+                 "season_pitching_official", "team_rank_official"):
+        shutil.copyfile(load_work / "data/load" / f"{name}.csv", load / f"{name}.csv")
+    before = rows("select count(*) from game union all select count(*) from batter_game")
+    for _ in range(2):
+        psql_file(ROOT / "erd/ddl/11_load_kbo.sql", cwd=tmp_path)
+    assert rows("select count(*) from game union all select count(*) from batter_game") == before
+    assert rows("select to_regclass('public.pitch'), to_regclass('public.v_pitch_mix')") == [["", ""]]
+
+
+def test_scope_upgrade_archives_legacy_data(loaded_db):
+    # Minimal pre-change objects; preserved content and view dependencies matter here.
+    psql("create table pitch_type(id int primary key); create table pitch_result(id int primary key); "
+         "create table pitch(id int primary key, type_id int references pitch_type); "
+         "insert into pitch_type values(1); insert into pitch_result values(1); insert into pitch values(7,1); "
+         "create view v_pitch_detail as select * from pitch; "
+         "create view v_pitch_mix as select count(*) as n from v_pitch_detail;")
+    before = rows("select count(*) from player union all select count(*) from game")
+    for _ in range(2):
+        psql_file(ROOT / "erd/ddl/10_kbo_only.sql", cwd=ROOT)
+    assert rows("select id from legacy_naver.pitch") == [["7"]]
+    assert rows("select n from legacy_naver.v_pitch_mix") == [["1"]]
+    assert rows("select to_regclass('public.pitch') is null") == [["t"]]
+    assert rows("select count(*) from player union all select count(*) from game") == before

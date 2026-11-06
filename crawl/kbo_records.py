@@ -92,7 +92,11 @@ def sort_by_games(client: PostbackClient) -> bool:
     if not find_name(fields, "hfOrderByCol"):
         log.warning("정렬용 hidden 필드(hfOrderByCol)가 없음 → 기본 정렬 유지 (규정타석 선수만 나올 수 있음 ❓)")
         return False
-    client.postback("lbtnOrderBy", {"hfOrderByCol": SORT_COLUMN, "hfOrderBy": "DESC"})
+    overrides = {"hfOrderByCol": SORT_COLUMN, "hfOrderBy": "DESC"}
+    # 팀을 바꾸어도 이전 팀의 마지막 페이지가 hidden 필드에 남는다.
+    if find_name(fields, "hfPage"):
+        overrides["hfPage"] = "1"
+    client.postback("lbtnOrderBy", overrides)
     return True
 
 

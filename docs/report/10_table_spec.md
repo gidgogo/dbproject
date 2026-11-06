@@ -69,10 +69,14 @@ KBO playerId로 식별하는 선수 마스터. 이름은 동명이인·개명이
 | signing_bonus_10k | 입단계약금 | integer |  |  |  | 만원 단위 (원화가 아니면 NULL) |
 | is_retired | 은퇴여부 | boolean | Y |  | false | 은퇴 선수 페이지에서 수집했으면 true |
 | profile_crawled_at | 프로필수집일시 | timestamp with time zone |  |  |  | 상세 페이지를 받은 시각 |
+| current_team_name | 현재소속명 | character varying(60) |  |  |  | 프로필 수집 시점의 소속 원문. 상무 등 KBO 10개 구단 외 소속도 보존하며 과거 시즌 소속과 구분 |
+| current_uniform_no | 현재등번호 | character varying(3) |  |  |  | 프로필 수집 시점의 등번호. 과거 시즌에 소급하지 않음 |
+| profile_source_url | 프로필출처 | text |  |  |  | KBO playerId가 포함된 상세 페이지 URL |
 
 **CHECK 제약**
 
 - `ck_player_bonus`: `CHECK ((signing_bonus_10k >= 0))`
+- `ck_player_current_uniform`: `CHECK (((current_uniform_no)::text ~ '^[0-9]{1,3}$'::text))`
 - `ck_player_height`: `CHECK (((height_cm >= 140) AND (height_cm <= 230)))`
 - `ck_player_position`: `CHECK ((("position")::text = ANY ((ARRAY['투수'::character varying, '포수'::character varying, '내야수'::character varying, '외야수'::character varying])::text[])))`
 - `ck_player_throws`: `CHECK (((throws)::bpchar = ANY (ARRAY['L'::bpchar, 'R'::bpchar])))`
@@ -90,7 +94,7 @@ KBO playerId로 식별하는 선수 마스터. 이름은 동명이인·개명이
 | name_in_season | 시즌표기명 | d_person_name (character varying(30)) | Y |  |  | 그 시즌 기록실 표기 이름 (개명·외국인 이름 축약 대응) |
 | is_batter | 타자기록여부 | boolean | Y |  | false | 기록실 타자 목록에 있으면 true |
 | is_pitcher | 투수기록여부 | boolean | Y |  | false | 기록실 투수 목록에 있으면 true |
-| uniform_no | 등번호 | character varying(3) |  |  |  | 상세 페이지에서 수집 (현재 시즌만 확인 가능, 과거 시즌은 NULL) |
+| uniform_no | 시즌등번호 | character varying(3) |  |  |  | 별도 시즌 근거가 있을 때만 입력. 현재 프로필의 등번호는 player.current_uniform_no에 저장 |
 
 **참조 무결성 (FK)**
 
@@ -141,7 +145,7 @@ KBO playerId로 식별하는 선수 마스터. 이름은 동명이인·개명이
 | start_time | 개시시각 | time without time zone |  |  |  | 경기 시작 시각 |
 | end_time | 종료시각 | time without time zone |  |  |  | 경기 종료 시각 |
 | duration_min | 경기시간 | smallint |  |  |  | 분 단위 (3:05 → 185) |
-| kbo_game_id | KBO경기ID | character varying(13) |  | UQ | GENERATED: replace((game_id)::text, '_'::text, ''::text) | KBO·네이버 연동용 G_ID (밑줄 제거, 생성 컬럼). 네이버 gameId = KBO경기ID + 시즌 |
+| kbo_game_id | KBO경기ID | character varying(13) |  | UQ | GENERATED: replace((game_id)::text, '_'::text, ''::text) | KBO 게임센터 G_ID (밑줄 제거, 생성 컬럼) |
 
 **참조 무결성 (FK)**
 
@@ -398,83 +402,9 @@ kbodata config.ini [BATTER] 코드표 (좌중안=1020 등)
 
 - `ck_game_umpire_order`: `CHECK (((listed_order >= 1) AND (listed_order <= 6)))`
 
-## 10.19 구종 (pitch_type)
+## 10.19 시즌타자기록(공식) (season_batting_official)
 
-네이버 문자중계 구종 표기와 Statcast 코드 대응
-
-| Attribute | 논리명 | Data Type | NN | Key | Default | Description |
-|---|---|---|:---:|---|---|---|
-| pitch_type_ko | 구종명 | character varying(10) | Y | PK |  | 네이버 표기 (직구, 슬라이더 ...) |
-| statcast_code | Statcast코드 | character(2) | Y |  |  | FF, SL, CH ... |
-| name_en | 영문명 | character varying(30) | Y |  |  | 영문 구종명 |
-| pitch_group | 구종군 | character varying(10) | Y |  |  | FASTBALL 직구계열, BREAKING 변화구, OFFSPEED 체인지업 계열, OTHER |
-
-**CHECK 제약**
-
-- `ck_pitch_type_group`: `CHECK (((pitch_group)::text = ANY ((ARRAY['FASTBALL'::character varying, 'BREAKING'::character varying, 'OFFSPEED'::character varying, 'OTHER'::character varying])::text[])))`
-
-## 10.20 투구결과 (pitch_result)
-
-네이버 pitchResult 코드
-
-| Attribute | 논리명 | Data Type | NN | Key | Default | Description |
-|---|---|---|:---:|---|---|---|
-| pitch_result_code | 투구결과코드 | character(1) | Y | PK |  | B 볼, T 스트라이크, S 헛스윙, F 파울, V 번트헛스윙, W 번트파울, H 타격 |
-| result_name | 투구결과명 | character varying(20) | Y |  |  | 한글 이름 |
-| call_type | 판정구분 | character(1) | Y |  |  | B 볼, S 스트라이크, X 인플레이 |
-
-**CHECK 제약**
-
-- `ck_pitch_result_call`: `CHECK ((call_type = ANY (ARRAY['B'::bpchar, 'S'::bpchar, 'X'::bpchar])))`
-
-## 10.21 투구 (pitch)
-
-네이버 문자중계 투구 1개 (구종·구속·카운트·로케이션)
-
-| Attribute | 논리명 | Data Type | NN | Key | Default | Description |
-|---|---|---|:---:|---|---|---|
-| game_id | 경기ID | d_game_id (character varying(14)) | Y | PK, FK→game.game_id, UQ |  | 경기(FK). 네이버 gameId에서 변환 |
-| pitch_seq | 투구순번 | integer | Y | PK |  | 경기 안에서 투구 순서 (1부터) |
-| inning | 이닝 | d_inning (smallint) | Y |  |  | 이닝 |
-| half | 초말 | character(1) | Y |  |  | T 초(원정 공격), B 말(홈 공격) |
-| at_bat_no | 타석순번 | smallint | Y | UQ |  | 경기 안에서 타석 순서 (네이버 기준) |
-| pitch_no | 타석내투구번호 | smallint | Y | UQ |  | 그 타석의 몇 번째 공인지 |
-| pitcher_id | 투수ID | d_player_id (integer) | Y | FK→player.player_id |  | 선수(FK) |
-| batter_id | 타자ID | d_player_id (integer) | Y | FK→player.player_id |  | 선수(FK) |
-| balls | 볼카운트(볼) | smallint | Y |  |  | 투구 직전 |
-| strikes | 볼카운트(스트라이크) | smallint | Y |  |  | 투구 직전 |
-| outs | 현재아웃수 | smallint | Y |  |  | 타석 시작 시점의 아웃 수 (0~2) |
-| pitch_type_ko | 구종명 | character varying(10) |  | FK→pitch_type.pitch_type_ko |  | 구종(FK). 미측정이면 NULL |
-| speed_kmh | 구속 | smallint |  |  |  | km/h |
-| pitch_result_code | 투구결과코드 | character(1) |  | FK→pitch_result.pitch_result_code |  | 투구결과(FK) |
-| plate_x | 홈플레이트좌우위치 | numeric(6,3) |  |  |  | ft, 포수 시점, 0 = 플레이트 중앙 (네이버 crossPlateX) |
-| plate_z | 홈플레이트높이 | numeric(6,3) |  |  |  | ft, 궤적(PITCHf/x 등가속도 모델)으로 계산한 값 |
-| sz_top | 스트라이크존상단 | numeric(5,3) |  |  |  | ft |
-| sz_bot | 스트라이크존하단 | numeric(5,3) |  |  |  | ft |
-| batter_stance | 타석방향 | character(1) |  |  |  | L 좌타석, R 우타석 |
-| pa_result_text | 타석결과문자 | character varying(100) |  |  |  | 타석 마지막 투구에만 네이버 결과 문장 |
-| naver_pitch_id | 네이버투구ID | character varying(40) |  |  |  | 원본 추적용 ptsPitchId |
-
-**참조 무결성 (FK)**
-
-- `fk_pitch_batter`: (batter_id) → player(player_id) ON UPDATE CASCADE ON DELETE RESTRICT — 비식별 관계
-- `fk_pitch_game`: (game_id) → game(game_id) ON UPDATE CASCADE ON DELETE CASCADE — 식별 관계
-- `fk_pitch_pitcher`: (pitcher_id) → player(player_id) ON UPDATE CASCADE ON DELETE RESTRICT — 비식별 관계
-- `fk_pitch_result`: (pitch_result_code) → pitch_result(pitch_result_code) ON UPDATE CASCADE ON DELETE RESTRICT — 비식별 관계
-- `fk_pitch_type`: (pitch_type_ko) → pitch_type(pitch_type_ko) ON UPDATE CASCADE ON DELETE RESTRICT — 비식별 관계
-
-**CHECK 제약**
-
-- `ck_pitch_count`: `CHECK ((((balls >= 0) AND (balls <= 3)) AND ((strikes >= 0) AND (strikes <= 2)) AND ((outs >= 0) AND (outs <= 2))))`
-- `ck_pitch_half`: `CHECK ((half = ANY (ARRAY['T'::bpchar, 'B'::bpchar])))`
-- `ck_pitch_seq`: `CHECK (((pitch_seq >= 1) AND (at_bat_no >= 1) AND (pitch_no >= 1)))`
-- `ck_pitch_speed`: `CHECK (((speed_kmh >= 50) AND (speed_kmh <= 175)))`
-- `ck_pitch_stance`: `CHECK ((batter_stance = ANY (ARRAY['L'::bpchar, 'R'::bpchar])))`
-- `ck_pitch_zone`: `CHECK ((sz_top > sz_bot))`
-
-## 10.22 시즌타자기록(공식) (season_batting_official)
-
-KBO 기록실 시즌 누적 값. 저장된 유도 속성이므로 집계 뷰와 비교·검증에만 쓴다
+KBO 기록실 시즌 누적 값. 화면에 직접 조회하고 경기 집계와 비교·검증한다
 
 | Attribute | 논리명 | Data Type | NN | Key | Default | Description |
 |---|---|---|:---:|---|---|---|
@@ -513,9 +443,9 @@ KBO 기록실 시즌 누적 값. 저장된 유도 속성이므로 집계 뷰와 
 
 - `ck_sbo_hits`: `CHECK (((hits)::integer <= (at_bats)::integer))`
 
-## 10.23 시즌투수기록(공식) (season_pitching_official)
+## 10.20 시즌투수기록(공식) (season_pitching_official)
 
-KBO 기록실 시즌 누적 값 (검증용)
+KBO 기록실 시즌 누적 값 (화면 조회 및 경기 집계 검증용)
 
 | Attribute | 논리명 | Data Type | NN | Key | Default | Description |
 |---|---|---|:---:|---|---|---|
@@ -554,7 +484,7 @@ KBO 기록실 시즌 누적 값 (검증용)
 
 - `ck_spo_er`: `CHECK (((earned_runs)::integer <= (runs_allowed)::integer))`
 
-## 10.24 팀순위(공식) (team_rank_official)
+## 10.21 팀순위(공식) (team_rank_official)
 
 KBO 기록실 팀 순위 (기준일별). 경기 테이블로 계산한 순위 뷰와 비교·검증
 

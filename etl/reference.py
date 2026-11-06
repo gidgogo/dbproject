@@ -40,7 +40,6 @@ class Reference:
     place_rules: list[tuple[str, int, int | None, int]] = field(default_factory=list)
     event_types: set[str] = field(default_factory=set)
     pa_codes: set[int] = field(default_factory=set)
-    pitch_types: set[str] = field(default_factory=set)
 
     @classmethod
     def load(cls, ref_dir: Path = REF_DIR) -> "Reference":
@@ -55,7 +54,6 @@ class Reference:
             ref.place_rules.append((r["place"], int(r["from_season"]), to, int(r["stadium_id"])))
         ref.event_types = {r["event_type"] for r in read_csv(ref_dir / "game_event_type.csv")}
         ref.pa_codes = {int(r["result_code"]) for r in read_csv(ref_dir / "pa_result_code.csv")}
-        ref.pitch_types = {r["pitch_type_ko"] for r in read_csv(ref_dir / "pitch_type.csv")}
         return ref
 
     def team_id(self, name: str | None, season: int) -> str | None:

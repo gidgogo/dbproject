@@ -60,3 +60,24 @@ UNION ALL SELECT 'batter_pa', count(*) FROM v_check_batter_pa
 UNION ALL SELECT 'game_result', count(*) FROM v_check_game_result
 UNION ALL SELECT 'pitcher_decision', count(*) FROM v_check_pitcher_decision;
 ```
+
+## 4. KBO 전용 적재 검증 (네이버 제외)
+
+`python etl/crawl_to_tables.py` 후 `11_load_kbo.sql`을 사용하면 경기 CSV 없이 공식 자료만 적재할 수 있다.
+이 상태에서 경기 집계 비교가 불일치하는 것은 박스스코어가 없기 때문이며, 공식 수집 실패로 해석하지 않는다.
+먼저 아래 조회로 실제 적재 건수·현재 프로필과 시즌 소속 구분을 확인한다.
+
+```sql
+SELECT 'player' AS source, count(*) FROM player
+UNION ALL SELECT 'player_season', count(*) FROM player_season
+UNION ALL SELECT 'batting_official', count(*) FROM season_batting_official
+UNION ALL SELECT 'pitching_official', count(*) FROM season_pitching_official
+UNION ALL SELECT 'rank_official', count(*) FROM team_rank_official;
+
+SELECT player_id, player_name, current_team_name, current_uniform_no, profile_crawled_at
+FROM player WHERE current_team_name = '상무';
+```
+
+실측 결과는 [수집 결과](collection_status.md)에 기록한다.
+기존 DB는 `10_kbo_only.sql`로 전환하며, 보관된 과거 투구는 `legacy_naver.pitch`에서 확인한다.
+새 DB에는 네이버 테이블·뷰가 없다.

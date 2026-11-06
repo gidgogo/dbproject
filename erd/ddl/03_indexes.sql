@@ -33,7 +33,3 @@ CREATE INDEX ix_game_event_player    ON game_event (player_id) WHERE player_id I
 
 -- 심판별 경기
 CREATE INDEX ix_game_umpire_umpire   ON game_umpire (umpire_id);
-
--- Savant식 시각화: 투수별·타자별 투구
-CREATE INDEX ix_pitch_pitcher        ON pitch (pitcher_id, pitch_type_ko);
-CREATE INDEX ix_pitch_batter         ON pitch (batter_id);

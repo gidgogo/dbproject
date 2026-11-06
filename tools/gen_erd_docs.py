@@ -23,7 +23,7 @@ SEP = "\x1f"
 # 표 순서 (보고서에 나오는 순서)
 ORDER = ["team", "stadium", "team_season", "player", "player_season", "player_salary", "game", "team_game",
          "inning_score", "pa_result_type", "pa_result_code", "batter_game", "plate_appearance", "pitcher_game",
-         "game_event_type", "game_event", "umpire", "game_umpire", "pitch_type", "pitch_result", "pitch",
+         "game_event_type", "game_event", "umpire", "game_umpire",
          "season_batting_official", "season_pitching_official", "team_rank_official"]
 GROUPS = {
     "기준 정보": ["team", "stadium", "team_season"],
@@ -31,8 +31,7 @@ GROUPS = {
     "경기 기록 (kbodata)": ["game", "team_game", "inning_score", "batter_game", "plate_appearance",
                          "pa_result_code", "pa_result_type", "pitcher_game", "game_event", "game_event_type",
                          "umpire", "game_umpire"],
-    "투구 (네이버 문자중계)": ["pitch", "pitch_type", "pitch_result"],
-    "기록실 공식 기록 (검증용)": ["season_batting_official", "season_pitching_official", "team_rank_official"],
+    "KBO 공식 시즌 기록·순위": ["season_batting_official", "season_pitching_official", "team_rank_official"],
 }
 
 

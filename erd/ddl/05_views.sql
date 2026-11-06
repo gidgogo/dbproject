@@ -311,7 +311,7 @@ GROUP BY g.season, t.team_id, o.team_id;
 COMMENT ON VIEW v_team_head_to_head IS '팀상대전적: 팀 프로필 화면의 상대 팀별 승패';
 
 -- ---------------------------------------------------------------------
--- 5. Savant식 시각화
+-- 5. 박스스코어 기반 시각화 (경기 데이터 적재 후 사용)
 -- ---------------------------------------------------------------------
 -- 5-1. 타구 방향 (스프레이 차트) — kbodata 타석 결과 코드의 수비 위치로 추정
 CREATE VIEW v_spray_chart AS
@@ -325,50 +325,7 @@ WHERE c.spray_dir IS NOT NULL AND g.series_id = 0
 GROUP BY p.player_id, g.season, c.spray_dir, t.result_type, t.result_type_name;
 COMMENT ON VIEW v_spray_chart IS '스프레이차트: 타자·시즌·방향(L/LC/C/RC/R)·결과유형별 타구 수';
 
--- 5-2. 스트라이크존 구역 (Statcast 방식: 존 안 1~9, 존 밖 11~14)
-CREATE OR REPLACE FUNCTION fn_strike_zone(px numeric, pz numeric, top numeric, bot numeric)
-RETURNS smallint LANGUAGE sql IMMUTABLE AS $$
-    -- 홈플레이트 폭 17인치 = ±0.708ft. 포수 시점에서 왼쪽(3루 쪽)이 음수.
-    SELECT CASE
-        WHEN px IS NULL OR pz IS NULL OR top IS NULL OR bot IS NULL OR top <= bot THEN NULL
-        WHEN abs(px) <= 0.708 AND pz BETWEEN bot AND top THEN
-            (3 * least(2, floor((top - pz) / ((top - bot) / 3)))::int
-             + least(2, floor((px + 0.708) / (1.416 / 3)))::int + 1)::smallint
-        WHEN pz >= (top + bot) / 2 THEN (CASE WHEN px < 0 THEN 11 ELSE 12 END)::smallint
-        ELSE (CASE WHEN px < 0 THEN 13 ELSE 14 END)::smallint
-    END
-$$;
-COMMENT ON FUNCTION fn_strike_zone(numeric, numeric, numeric, numeric) IS '스트라이크존구역: 1~9 존 안(포수 시점 왼쪽 위가 1), 11~14 존 밖';
-
-CREATE VIEW v_pitch_detail AS
-SELECT p.*,
-       g.season,
-       r.call_type,
-       fn_strike_zone(p.plate_x, p.plate_z, p.sz_top, p.sz_bot)              AS zone,
-       (p.pitch_result_code IN ('S', 'F', 'H', 'V', 'W'))                    AS is_swing,
-       (p.pitch_result_code IN ('S', 'V'))                                   AS is_whiff,
-       t.statcast_code,
-       t.pitch_group
-FROM pitch p
-JOIN game g              ON g.game_id = p.game_id
-LEFT JOIN pitch_result r ON r.pitch_result_code = p.pitch_result_code
-LEFT JOIN pitch_type t   ON t.pitch_type_ko = p.pitch_type_ko;
-COMMENT ON VIEW v_pitch_detail IS '투구상세: 존 구역, 스윙·헛스윙 여부를 붙인 투구 (히트맵용)';
-
-CREATE VIEW v_pitch_mix AS
-SELECT pitcher_id, season, pitch_type_ko,
-       count(*) AS pitches,
-       round(100.0 * count(*) / sum(count(*)) OVER (PARTITION BY pitcher_id, season), 1) AS usage_pct,
-       round(avg(speed_kmh), 1)  AS avg_speed_kmh,
-       max(speed_kmh)            AS max_speed_kmh,
-       round(100.0 * count(*) FILTER (WHERE is_whiff) / nullif(count(*) FILTER (WHERE is_swing), 0), 1) AS whiff_pct,
-       round(100.0 * count(*) FILTER (WHERE zone BETWEEN 1 AND 9) / nullif(count(zone), 0), 1)          AS zone_pct
-FROM v_pitch_detail
-WHERE pitch_type_ko IS NOT NULL
-GROUP BY pitcher_id, season, pitch_type_ko;
-COMMENT ON VIEW v_pitch_mix IS '구종구성: 투수·시즌·구종별 비율, 평균/최고 구속, 헛스윙률, 존 투구율';
-
--- 5-3. 백분위 (Savant 퍼센타일 막대) — 규정타석(팀 경기 수 × 3.1) 이상 타자 대상
+-- 5-2. 타자 백분위 — 규정타석(팀 경기 수 × 3.1) 이상 타자 대상
 CREATE VIEW v_batting_percentile AS
 WITH lg AS (
     SELECT season, max(games) AS team_games FROM mv_team_standings GROUP BY season

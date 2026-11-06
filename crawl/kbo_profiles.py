@@ -129,7 +129,9 @@ def main(argv: list[str] | None = None) -> int:
     if failed:
         save_text(RAW_DIR / "_failed.txt", "\n".join(map(str, failed)) + "\n")
         log.warning("실패 %d명 → %s", len(failed), RAW_DIR / "_failed.txt")
-    return 0
+    elif (RAW_DIR / "_failed.txt").exists():
+        (RAW_DIR / "_failed.txt").unlink()
+    return 1 if failed else 0
 
 
 if __name__ == "__main__":
