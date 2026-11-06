@@ -141,7 +141,7 @@ z(t) = z0 + vz0·t + ½·az·t² (`crawl/naver_parsers.plate_z`). 같은 계산�
 ## 7. 이용 시 주의
 
 - 공식 공개 API가 아니다(문서 없음). 수업 프로젝트 용도로만, 1~2초 간격·순차 요청으로 수집한다.
-  교수님 문의 메일(docs/email_professor.md) 3번 항목에 포함했다.
+  교수님은 데이터 수집 방법은 신경 쓰지 않는다고 말씀하셨으며, 별도 문의는 불필요하다([확인 기록](email_professor.md)).
 - 원본 JSON(`data/raw/naver/`)은 레포에 올리지 않는다(.gitignore).
 
 ## 근거 (공개 자료)

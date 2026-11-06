@@ -56,7 +56,7 @@ psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/09_upgrade_views.sql
 
 | 작업지시서 항목 | 산출물 | 상태 |
 |---|---|---|
-| 2-0 교수님 문의 | [docs/email_professor.md](docs/email_professor.md) | 메일 발송은 성수가 직접 |
+| 2-0 데이터 수집 방법 확인 | [교수님 말씀 확인](docs/email_professor.md) | ✅ 수집 방법은 신경 쓰지 않는다고 말씀하심 · 별도 문의 불필요 |
 | 2-1 ERD | [개념 ERD](erd/img/erd_conceptual.png) · [논리 ERD](erd/img/erd_logical.svg) · [DBML](erd/kbo_erd.dbml) · [DDL](erd/ddl/) | ✅ v0 (PostgreSQL 16 테스트 통과) · 🟡 11/10 확정 |
 | 2-1 뷰 | 시즌 타자(타율·출루율·장타율·OPS)·투수(ERA·WHIP)·팀 순위 MV + 시각화·검증 뷰 | ✅ |
 | 2-2 playerId·선수 상세 | `crawl/kbo_records.py`, `crawl/kbo_profiles.py`, 매핑 검증 `etl/kbodata_to_tables.py --check-only` | ✅ 코드 · ⏳ 맥에서 수집 |
