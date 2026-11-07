@@ -12,7 +12,11 @@
 - [ ] 엔터티 목록·관계에 빠진 화면 기능이 있는가 (경기 결과 / 선수 프로필·비교 / 팀 프로필 / 순위 / 시각화)
 - [ ] 주식별자: 선수 = KBO playerId(integer), 경기 = kbodata id `20250601_OBWO0`, 팀 = KBO 팀코드 — 동의?
 - [ ] 공식 시즌 기록·순위는 `_official` 표로 먼저 제공하고, 박스스코어 집계 **머티리얼라이즈드 뷰**는 경기 적재 후 비교하는 방식 — 백엔드 조회 출처를 구분하는가
-- [ ] `team_game.home_away` 의도적 중복(트리거로 일관성 보장) 괜찮은가
+- [ ] `match_team.home_away` 의도적 중복(트리거로 일관성 보장) 괜찮은가
+- [ ] 경기 테이블명 `match` 통일(백엔드 패키지 match와 맞춤) — 11/7 반영함, 확인만
+- [ ] 복합키 테이블에 대리키 `id bigint` + 업무키 UNIQUE — JPA `@Id Long id` 하나로 매핑 (11/7 반영, Spring Boot 4.1.2 validate 통과 확인). 다른 방식 원하면 지금 결정
+- [ ] MV 갱신은 데이터 적재 담당이 적재 직후(`load_data.sql`이 자동), 백엔드는 읽기만 — 동의?
+- [ ] V1·V2 마이그레이션을 팀 레포에 누가·언제 PR로 올릴지 (회의 후 김경주 리뷰)
 
 ## 2. 컬럼명·자료형 규칙 합의 — 15분
 
@@ -20,13 +24,13 @@
 - [ ] 영어 소문자 snake_case, 테이블 단수형, `_id`/`_code`/`is_`/단위 접미어(`_cm`, `_kmh`, `_10k_krw`)
 - [ ] 이닝은 **아웃카운트 정수**(6⅓ = 19)로 저장, 표시만 `6 1/3`
 - [ ] 비율은 numeric (타율 numeric(4,3)), 돈은 만원 단위 정수 + 달러 별도 컬럼
-- [ ] PostgreSQL DOMAIN 사용 (Spring은 `ddl-auto=none`, docs/handoff/backend_kimkyungju.md)
+- [x] ~~PostgreSQL DOMAIN 사용~~ → 팀 레포 `ddl-auto: validate`에 맞춰 DOMAIN·smallint·char를 빼고 integer·varchar + CHECK로 바꿈 (11/7, 도메인은 보고서 9장에만)
 
 ## 3. 배인표 전처리와의 인터페이스 — 10분
 
-- [ ] 매핑표 형식: `data/player_season_team.csv` (season, team_id, player_id, name, is_batter, is_pitcher)
-- [ ] 적재용 CSV 형식 = `etl/kbodata_to_tables.py` 출력 (테이블 컬럼 순서 그대로) — 참고 구현을 그대로 쓸지, 인표가 새로 만들지
-- [ ] **kbodata 버그 2개 공유**: 결정 없는 투수도 'L'(패), 타순 열 버림 → `crawl/kbodata_patch.py` 를 kbo_fetch.py에 적용한 뒤 시즌 수집하자
+- [ ] 매핑표 형식: `data-pipeline/data/player_season_team.csv` (season, team_id, player_id, name, is_batter, is_pitcher)
+- [ ] 적재용 CSV 형식 = `data-pipeline/etl/kbodata_to_tables.py` 출력 (테이블 컬럼 순서 그대로) — 참고 구현을 그대로 쓸지, 인표가 새로 만들지
+- [ ] **kbodata 버그 2개 공유**: 결정 없는 투수도 'L'(패), 타순 열 버림 → `data-pipeline/crawl/kbodata_patch.py` 를 kbo_fetch.py에 적용한 뒤 시즌 수집하자
 - [ ] 기타기록(ETC_info) 파싱 분담 — 참고 구현(`etl/kbodata_parse.parse_etc_item`) 있음
 
 ## 4. 수집 연도 범위 확정 — 5분

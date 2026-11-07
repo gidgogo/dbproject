@@ -6,7 +6,7 @@
 - 투구별 구종·구속·볼카운트·좌표는 수집·화면 범위에서 제외한다.
 - 네이버 수집기·변환기·전용 기준 CSV·적재 SQL과 전용 테스트는 현재 코드에서 제거했다. 과거 구현은 Git 이력에 남는다.
 - 새 ERD·DDL에는 `pitch`, `pitch_type`, `pitch_result`와 관련 시각화 뷰가 없다.
-- 기존 DB 자료는 `erd/ddl/10_kbo_only.sql`로 `legacy_naver` 영역에 보존할 수 있다.
+- 예전 DB 전환 스크립트(`10_kbo_only.sql`, `legacy_naver` 보관)는 Flyway 전환(11/7) 때 삭제했다. 필요하면 Git 이력에서 꺼낸다.
 - 이전 문서의 좌표 제공 연도·Savant 시각화 가능 주장은 실데이터로 검증하지 않았으므로 확정 사실로 사용하지 않는다.
 
-현재 수집 범위와 결과는 [collection_status.md](collection_status.md), 실행 절차는 [크롤링 가이드](../crawl/README.md)를 참고한다.
+현재 수집 범위와 결과는 [collection_status.md](collection_status.md), 실행 절차는 [크롤링 가이드](../data-pipeline/crawl/README.md)를 참고한다.

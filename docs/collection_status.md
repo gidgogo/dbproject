@@ -7,11 +7,11 @@
 
 | 파일 | 행 수 | 내용 |
 |---|---:|---|
-| [player_season_team.csv](../data/player_season_team.csv) | 585 | 시즌·팀 표기·이름 → KBO playerId. 고유 선수 585명 |
-| [players.csv](../data/players.csv) | 585 | 대상 선수 프로필 585/585명 |
-| [season_batting.csv](../data/season_batting.csv) | 398 | Basic1·2 타자 시즌 기록 |
-| [season_pitching.csv](../data/season_pitching.csv) | 281 | Basic1·2 투수 시즌 기록 |
-| [team_rank.csv](../data/team_rank.csv) | 10 | 2025-10-31 기준 10개 팀 순위 |
+| [player_season_team.csv](../data-pipeline/data/player_season_team.csv) | 585 | 시즌·팀 표기·이름 → KBO playerId. 고유 선수 585명 |
+| [players.csv](../data-pipeline/data/players.csv) | 585 | 대상 선수 프로필 585/585명 |
+| [season_batting.csv](../data-pipeline/data/season_batting.csv) | 398 | Basic1·2 타자 시즌 기록 |
+| [season_pitching.csv](../data-pipeline/data/season_pitching.csv) | 281 | Basic1·2 투수 시즌 기록 |
+| [team_rank.csv](../data-pipeline/data/team_rank.csv) | 10 | 2025-10-31 기준 10개 팀 순위 |
 
 ## 팀별 수집 범위
 
@@ -80,7 +80,7 @@
 
 ## 재현과 원본
 
-[수집·적재 가이드](../crawl/README.md)의 명령을 따른다.
+[수집·적재 가이드](../data-pipeline/crawl/README.md)의 명령을 따른다.
 기록실 원본 HTML·단위별 CSV·체크포인트는 `data/raw/kbo/records/`, 프로필 HTML은 `data/raw/kbo/profiles/`,
 순위 HTML은 `data/raw/kbo/team_rank/`에 로컬 보존했다. 실행 로그·검증 JSON은 `data/raw/smoke_20261106/`에 있다.
 이 원본·중간 적재 CSV 폴더들은 Git 제외 대상이다. 공유용 수집 CSV는 위 링크에 포함했다.

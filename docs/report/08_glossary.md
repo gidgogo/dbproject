@@ -13,7 +13,7 @@
 | 시즌 | Season | season | 연도 |
 | 구장 | Stadium | stadium | |
 | 선수 | Player | player | |
-| 경기 | Game | game | |
+| 경기 | Game | match | |
 | 심판 | Umpire | umpire | |
 | 타자 | Batter | batter | |
 | 투수 | Pitcher | pitcher | |

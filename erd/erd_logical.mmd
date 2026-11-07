@@ -1,22 +1,25 @@
 %% KBO 야구 기록 DB 논리 ERD — tools/gen_erd_docs.py 자동 생성
-%% 실선 = 식별 관계(부모 키가 자식 PK에 포함), 점선 = 비식별 관계
+%% 실선 = 식별 관계(부모 키가 자식 식별자에 포함), 점선 = 비식별 관계
+%% 논리 모델이므로 식별자는 업무키로 표시하고, 물리 설계에서 추가한 대리키 id는 생략한다(10장 테이블 기술서 참고)
 erDiagram
-    player ||--o{ batter_game : "player_id"
-    team_game ||..o{ batter_game : "game_id,team_id"
-    team_season ||..o{ game : "away_team_id,season"
-    team_season ||..o{ game : "home_team_id,season"
-    stadium |o..o{ game : "stadium_id"
-    game ||..o{ game_event : "game_id"
-    player |o..o{ game_event : "player_id"
-    team_game |o..o{ game_event : "game_id,team_id"
-    game_event_type ||..o{ game_event : "event_type"
-    game ||--o{ game_umpire : "game_id"
-    umpire ||--o{ game_umpire : "umpire_id"
-    team_game ||--o{ inning_score : "game_id,team_id"
+    match_team ||..o{ batter_match : "match_id,team_id"
+    player ||--o{ batter_match : "player_id"
+    match_team ||--o{ inning_score : "match_id,team_id"
+    team_season ||..o{ match : "away_team_id,season"
+    team_season ||..o{ match : "home_team_id,season"
+    stadium |o..o{ match : "stadium_id"
+    match ||..o{ match_event : "match_id"
+    match_team |o..o{ match_event : "match_id,team_id"
+    player |o..o{ match_event : "player_id"
+    match_event_type ||..o{ match_event : "event_type"
+    match ||--o{ match_team : "match_id"
+    team ||--o{ match_team : "team_id"
+    match ||--o{ match_umpire : "match_id"
+    umpire ||--o{ match_umpire : "umpire_id"
     pa_result_type ||..o{ pa_result_code : "result_type"
-    player ||--o{ pitcher_game : "player_id"
-    team_game ||..o{ pitcher_game : "game_id,team_id"
-    batter_game ||--o{ plate_appearance : "game_id,player_id"
+    match_team ||..o{ pitcher_match : "match_id,team_id"
+    player ||--o{ pitcher_match : "player_id"
+    batter_match ||--o{ plate_appearance : "match_id,player_id"
     pa_result_code ||..o{ plate_appearance : "result_code"
     player ||--o{ player_salary : "player_id"
     player ||--o{ player_season : "player_id"
@@ -25,8 +28,6 @@ erDiagram
     team_season ||--o{ season_batting_official : "team_id,season"
     player ||--o{ season_pitching_official : "player_id"
     team_season ||--o{ season_pitching_official : "team_id,season"
-    game ||--o{ team_game : "game_id"
-    team ||--o{ team_game : "team_id"
     team_season ||--o{ team_rank_official : "team_id,season"
     stadium |o..o{ team_season : "home_stadium_id"
     team ||--o{ team_season : "team_id"
@@ -37,7 +38,7 @@ erDiagram
         d_season first_season "첫시즌"
     }
     stadium {
-        smallint stadium_id PK "구장ID"
+        integer stadium_id PK "구장ID"
         varchar40 stadium_name "구장명"
         varchar20 city "지역"
         boolean is_dome "돔구장여부"
@@ -48,14 +49,14 @@ erDiagram
         d_season season PK "시즌"
         varchar30 team_name "시즌팀명"
         varchar10 short_name "약칭"
-        smallint home_stadium_id FK "홈구장ID"
+        integer home_stadium_id FK "홈구장ID"
     }
     player {
         d_player_id player_id PK "선수ID"
         d_person_name player_name "선수명"
         date birth_date "생년월일"
-        smallint height_cm "신장"
-        smallint weight_kg "체중"
+        integer height_cm "신장"
+        integer weight_kg "체중"
         d_hand throws "투구손"
         d_hand bats "타격방향"
         varchar10 position "포지션"
@@ -87,33 +88,33 @@ erDiagram
         integer salary_usd "연봉(달러)"
         varchar30 source_text "연봉원문"
     }
-    game {
-        d_game_id game_id PK "경기ID"
-        date game_date "경기일자"
+    match {
+        d_match_id match_id PK "경기ID"
+        date match_date "경기일자"
         d_season season FK "시즌"
         d_team_id away_team_id FK "원정팀ID"
         d_team_id home_team_id FK "홈팀ID"
-        smallint doubleheader_no "더블헤더번호"
-        smallint series_id "경기구분"
-        smallint stadium_id FK "구장ID"
+        integer doubleheader_no "더블헤더번호"
+        integer series_id "경기구분"
+        integer stadium_id FK "구장ID"
         integer attendance "관중수"
         time start_time "개시시각"
         time end_time "종료시각"
-        smallint duration_min "경기시간"
-        varchar13 kbo_game_id "KBO경기ID"
+        integer duration_min "경기시간"
+        varchar13 kbo_match_id "KBO경기ID"
     }
-    team_game {
-        d_game_id game_id PK,FK "경기ID"
+    match_team {
+        d_match_id match_id PK,FK "경기ID"
         d_team_id team_id PK,FK "팀ID"
-        char1 home_away "홈원정구분"
-        char1 result "승패"
+        varchar1 home_away "홈원정구분"
+        varchar1 result "승패"
         d_count runs "득점"
         d_count hits "안타"
         d_count errors "실책"
         d_count walks_hbp "4사구"
     }
     inning_score {
-        d_game_id game_id PK,FK "경기ID"
+        d_match_id match_id PK,FK "경기ID"
         d_team_id team_id PK,FK "팀ID"
         d_inning inning PK "이닝"
         d_count runs "이닝득점"
@@ -121,10 +122,10 @@ erDiagram
     pa_result_type {
         varchar20 result_type PK "결과유형코드"
         varchar20 result_type_name "결과유형명"
-        char2 batted_ball "타구종류"
+        varchar2 batted_ball "타구종류"
         boolean is_at_bat "타수포함여부"
         boolean is_hit "안타여부"
-        smallint total_bases "루타수"
+        integer total_bases "루타수"
         boolean is_walk "볼넷여부"
         boolean is_hbp "사구여부"
         boolean is_sac_fly "희생플라이여부"
@@ -133,18 +134,18 @@ erDiagram
         boolean is_double_play "병살여부"
     }
     pa_result_code {
-        smallint result_code PK "결과코드"
+        integer result_code PK "결과코드"
         varchar10 result_name "결과명"
         varchar20 result_type FK "결과유형코드"
-        smallint fielder_pos "처리수비위치"
+        integer fielder_pos "처리수비위치"
         varchar2 spray_dir "타구방향"
     }
-    batter_game {
-        d_game_id game_id PK,FK "경기ID"
+    batter_match {
+        d_match_id match_id PK,FK "경기ID"
         d_player_id player_id PK,FK "선수ID"
         d_team_id team_id FK "팀ID"
-        smallint lineup_seq "라인업순서"
-        smallint batting_order "타순"
+        integer lineup_seq "라인업순서"
+        integer batting_order "타순"
         varchar12 positions "포지션이력"
         d_count at_bats "타수"
         d_count hits "안타"
@@ -152,18 +153,18 @@ erDiagram
         d_count runs "득점"
     }
     plate_appearance {
-        d_game_id game_id PK,FK "경기ID"
+        d_match_id match_id PK,FK "경기ID"
         d_player_id player_id PK,FK "선수ID"
         d_inning inning PK "이닝"
-        smallint seq_in_inning PK "이닝내순번"
-        smallint result_code FK "결과코드"
+        integer seq_in_inning PK "이닝내순번"
+        integer result_code FK "결과코드"
     }
-    pitcher_game {
-        d_game_id game_id PK,FK "경기ID"
+    pitcher_match {
+        d_match_id match_id PK,FK "경기ID"
         d_player_id player_id PK,FK "선수ID"
         d_team_id team_id FK "팀ID"
-        smallint appearance_seq "등판순서"
-        char1 decision "승패세홀"
+        integer appearance_seq "등판순서"
+        varchar1 decision "승패세홀"
         d_outs outs_recorded "아웃카운트"
         d_count batters_faced "상대타자수"
         d_count at_bats "피타수"
@@ -175,15 +176,15 @@ erDiagram
         d_count runs_allowed "실점"
         d_count earned_runs "자책점"
     }
-    game_event_type {
+    match_event_type {
         varchar10 event_type PK "기록유형"
         varchar30 name_en "영문명"
     }
-    game_event {
+    match_event {
         bigint event_id PK "기록ID"
-        d_game_id game_id FK "경기ID"
+        d_match_id match_id FK "경기ID"
         varchar10 event_type FK "기록유형"
-        smallint seq "순번"
+        integer seq "순번"
         d_player_id player_id FK "선수ID"
         d_team_id team_id FK "팀ID"
         d_person_name player_name_raw "원문선수명"
@@ -192,13 +193,13 @@ erDiagram
         varchar200 raw_text "원문"
     }
     umpire {
-        smallint umpire_id PK "심판ID"
+        integer umpire_id PK "심판ID"
         d_person_name umpire_name "심판명"
     }
-    game_umpire {
-        d_game_id game_id PK,FK "경기ID"
-        smallint umpire_id PK,FK "심판ID"
-        smallint listed_order "표기순서"
+    match_umpire {
+        d_match_id match_id PK,FK "경기ID"
+        integer umpire_id PK,FK "심판ID"
+        integer listed_order "표기순서"
     }
     season_batting_official {
         d_player_id player_id PK,FK "선수ID"
@@ -258,7 +259,7 @@ erDiagram
         d_season season PK,FK "시즌"
         d_team_id team_id PK,FK "팀ID"
         date as_of_date PK "기준일"
-        smallint rank "순위"
+        integer rank "순위"
         d_total games "경기수"
         d_total wins "승"
         d_total losses "패"

@@ -12,18 +12,18 @@ TableGroup "선수" {
   player_salary
 }
 TableGroup "경기 기록 (kbodata)" {
-  game
-  team_game
+  match
+  match_team
   inning_score
-  batter_game
+  batter_match
   plate_appearance
   pa_result_code
   pa_result_type
-  pitcher_game
-  game_event
-  game_event_type
+  pitcher_match
+  match_event
+  match_event_type
   umpire
-  game_umpire
+  match_umpire
 }
 TableGroup "KBO 공식 시즌 기록·순위" {
   season_batting_official
@@ -32,28 +32,33 @@ TableGroup "KBO 공식 시즌 기록·순위" {
 }
 
 Table team [note: '팀: KBO 구단. 팀명이 바뀌어도 같은 구단이면 하나의 행 (팀명 이력은 team_season)'] {
-  team_id char(2) [not null, pk, note: '팀ID - KBO 팀코드. 구단명이 바뀌어도 유지된다 (SK→SSG도 SK) [도메인 d_team_id]']
+  team_id varchar(2) [not null, pk, note: '팀ID - KBO 팀코드. 구단명이 바뀌어도 유지된다 (SK→SSG도 SK) [도메인 d_team_id]']
   team_name varchar(30) [not null, note: '대표팀명 - 현재 정식 팀명']
   city varchar(20) [not null, note: '연고지 - 연고 도시']
-  first_season smallint [not null, note: '첫시즌 - 전신 구단을 포함한 KBO 리그 첫 참가 시즌 [도메인 d_season]']
+  first_season integer [not null, note: '첫시즌 - 전신 구단을 포함한 KBO 리그 첫 참가 시즌 [도메인 d_season]']
 }
 
 Table stadium [note: '구장: 경기가 열리는 야구장'] {
-  stadium_id smallint [not null, pk, note: '구장ID - 인조 식별자(자동 증가)']
+  stadium_id integer [not null, pk, note: '구장ID - 인조 식별자(자동 증가)']
   stadium_name varchar(40) [not null, note: '구장명 - 정식 명칭']
   city varchar(20) [not null, note: '지역 - 구장 소재 도시']
   is_dome boolean [not null, note: '돔구장여부 - 지붕이 있는 구장이면 true']
   capacity integer [note: '수용인원 - 좌석 수 (모르면 NULL)']
+  indexes {
+    (stadium_name) [unique]
+  }
 }
 
 Table team_season [note: '팀시즌: 시즌별 팀명과 홈구장 이력 (초안의 팀명이력 TEAM_NAME_HIST를 확장)'] {
-  team_id char(2) [not null, note: '팀ID - 팀(FK) [도메인 d_team_id]']
-  season smallint [not null, note: '시즌 - 연도 [도메인 d_season]']
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_team_season_key']
+  team_id varchar(2) [not null, note: '팀ID - 팀(FK) [도메인 d_team_id]']
+  season integer [not null, note: '시즌 - 연도 [도메인 d_season]']
   team_name varchar(30) [not null, note: '시즌팀명 - 그 시즌의 정식 팀명 (예: 2020 SK 와이번스, 2021 SSG 랜더스)']
   short_name varchar(10) [not null, note: '약칭 - 박스스코어·kbodata 팀명 표기 (두산, SSG, 키움 등). 이름→팀ID 매핑 키']
-  home_stadium_id smallint [note: '홈구장ID - 그 시즌 주 홈구장(FK)']
+  home_stadium_id integer [note: '홈구장ID - 그 시즌 주 홈구장(FK)']
   indexes {
-    (team_id, season) [pk]
+    (team_id, season) [unique]
+    (season, short_name) [unique]
   }
 }
 
@@ -61,16 +66,16 @@ Table player [note: '선수: KBO playerId로 식별하는 선수 마스터. 이�
   player_id integer [not null, pk, note: '선수ID - KBO playerId [도메인 d_player_id]']
   player_name varchar(30) [not null, note: '선수명 - 현재 등록 이름 [도메인 d_person_name]']
   birth_date date [note: '생년월일 - 생년월일']
-  height_cm smallint [note: '신장 - cm']
-  weight_kg smallint [note: '체중 - kg']
-  throws char(1) [note: '투구손 - L 좌투, R 우투 [도메인 d_hand]']
-  bats char(1) [note: '타격방향 - L 좌타, R 우타, S 양타 [도메인 d_hand]']
+  height_cm integer [note: '신장 - cm']
+  weight_kg integer [note: '체중 - kg']
+  throws varchar(1) [note: '투구손 - L 좌투, R 우투 [도메인 d_hand]']
+  bats varchar(1) [note: '타격방향 - L 좌타, R 우타, S 양타 [도메인 d_hand]']
   position varchar(10) [note: '포지션 - 투수/포수/내야수/외야수 (상세 페이지 기준)']
   career varchar(200) [note: '경력 - 출신교·경력 원문 (예: 발산초-덕수중-구리인창고). 화면 표시용 문자열']
   draft_info varchar(60) [note: '지명정보 - 지명 순위 원문 (예: 17 KIA 2차 4라운드 34순위)']
-  draft_year smallint [note: '지명연도 - 지명정보에서 추출한 연도 [도메인 d_season]']
+  draft_year integer [note: '지명연도 - 지명정보에서 추출한 연도 [도메인 d_season]']
   join_info varchar(30) [note: '입단정보 - 입단년도 원문 (예: 19KIA)']
-  join_year smallint [note: '입단연도 - 입단정보에서 추출한 연도 [도메인 d_season]']
+  join_year integer [note: '입단연도 - 입단정보에서 추출한 연도 [도메인 d_season]']
   signing_bonus_10k integer [note: '입단계약금 - 만원 단위 (원화가 아니면 NULL)']
   is_retired boolean [not null, note: '은퇴여부 - 은퇴 선수 페이지에서 수집했으면 true']
   profile_crawled_at timestamptz [note: '프로필수집일시 - 상세 페이지를 받은 시각']
@@ -80,76 +85,84 @@ Table player [note: '선수: KBO playerId로 식별하는 선수 마스터. 이�
 }
 
 Table player_season [note: '선수시즌소속: 선수가 어느 시즌에 어느 팀 소속으로 기록을 남겼는지. 시즌 중 이적하면 팀마다 한 행. 이름+팀+시즌 → 선수ID 매핑의 근거'] {
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_player_season_key']
   player_id integer [not null, note: '선수ID - 선수(FK) [도메인 d_player_id]']
-  season smallint [not null, note: '시즌 - 연도 [도메인 d_season]']
-  team_id char(2) [not null, note: '팀ID - 소속팀. (팀ID, 시즌)이 팀시즌(FK) [도메인 d_team_id]']
+  season integer [not null, note: '시즌 - 연도 [도메인 d_season]']
+  team_id varchar(2) [not null, note: '팀ID - 소속팀. (팀ID, 시즌)이 팀시즌(FK) [도메인 d_team_id]']
   name_in_season varchar(30) [not null, note: '시즌표기명 - 그 시즌 기록실 표기 이름 (개명·외국인 이름 축약 대응) [도메인 d_person_name]']
   is_batter boolean [not null, note: '타자기록여부 - 기록실 타자 목록에 있으면 true']
   is_pitcher boolean [not null, note: '투수기록여부 - 기록실 투수 목록에 있으면 true']
   uniform_no varchar(3) [note: '시즌등번호 - 별도 시즌 근거가 있을 때만 입력. 현재 프로필의 등번호는 player.current_uniform_no에 저장']
   indexes {
-    (player_id, season, team_id) [pk]
+    (player_id, season, team_id) [unique]
   }
 }
 
 Table player_salary [note: '선수연봉: 연봉은 팀이 아니라 (선수, 시즌)에 종속되므로 선수시즌소속과 분리 (2NF)'] {
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_player_salary_key']
   player_id integer [not null, note: '선수ID - 선수(FK) [도메인 d_player_id]']
-  season smallint [not null, note: '시즌 - 연도 [도메인 d_season]']
+  season integer [not null, note: '시즌 - 연도 [도메인 d_season]']
   salary_10k_krw integer [note: '연봉(원화) - 만원 단위']
   salary_usd integer [note: '연봉(달러) - 외국인 선수 달러 표기']
   source_text varchar(30) [note: '연봉원문 - 상세 페이지 표기 그대로 (예: 52000만원)']
   indexes {
-    (player_id, season) [pk]
+    (player_id, season) [unique]
   }
 }
 
-Table game [note: '경기: 한 경기. 경기ID는 kbodata raw JSON의 id를 그대로 쓴다'] {
-  game_id varchar(14) [not null, pk, note: '경기ID - YYYYMMDD_원정팀코드홈팀코드더블헤더 (예: 20250601_OBWO0) [도메인 d_game_id]']
-  game_date date [not null, note: '경기일자 - 경기 날짜']
-  season smallint [not null, note: '시즌 - 경기일자의 연도 (생성 컬럼, 직접 입력 불가) [도메인 d_season]']
-  away_team_id char(2) [not null, note: '원정팀ID - (원정팀ID, 시즌)이 팀시즌(FK) [도메인 d_team_id]']
-  home_team_id char(2) [not null, note: '홈팀ID - (홈팀ID, 시즌)이 팀시즌(FK) [도메인 d_team_id]']
-  doubleheader_no smallint [not null, note: '더블헤더번호 - 0 일반, 1 1차전, 2 2차전']
-  series_id smallint [not null, note: '경기구분 - KBO srId (0 정규시즌, 1 시범경기, 3~7 포스트시즌)']
-  stadium_id smallint [note: '구장ID - 구장(FK). 매핑 실패 시 NULL']
+Table match [note: '경기: 한 경기. 경기ID는 kbodata raw JSON의 id를 그대로 쓴다'] {
+  match_id varchar(14) [not null, pk, note: '경기ID - YYYYMMDD_원정팀코드홈팀코드더블헤더 (예: 20250601_OBWO0) [도메인 d_match_id]']
+  match_date date [not null, note: '경기일자 - 경기 날짜']
+  season integer [not null, note: '시즌 - 경기일자의 연도 (생성 컬럼, 직접 입력 불가) [도메인 d_season]']
+  away_team_id varchar(2) [not null, note: '원정팀ID - (원정팀ID, 시즌)이 팀시즌(FK) [도메인 d_team_id]']
+  home_team_id varchar(2) [not null, note: '홈팀ID - (홈팀ID, 시즌)이 팀시즌(FK) [도메인 d_team_id]']
+  doubleheader_no integer [not null, note: '더블헤더번호 - 0 일반, 1 1차전, 2 2차전']
+  series_id integer [not null, note: '경기구분 - KBO srId (0 정규시즌, 1 시범경기, 3~7 포스트시즌)']
+  stadium_id integer [note: '구장ID - 구장(FK). 매핑 실패 시 NULL']
   attendance integer [note: '관중수 - 명 (무관중 경기는 0)']
   start_time time [note: '개시시각 - 경기 시작 시각']
   end_time time [note: '종료시각 - 경기 종료 시각']
-  duration_min smallint [note: '경기시간 - 분 단위 (3:05 → 185)']
-  kbo_game_id varchar(13) [note: 'KBO경기ID - KBO 게임센터 G_ID (밑줄 제거, 생성 컬럼)']
+  duration_min integer [note: '경기시간 - 분 단위 (3:05 → 185)']
+  kbo_match_id varchar(13) [note: 'KBO경기ID - KBO 게임센터 G_ID (밑줄 제거, 생성 컬럼)']
+  indexes {
+    (kbo_match_id) [unique]
+  }
 }
 
-Table team_game [note: '팀경기기록: 경기 스코어보드의 팀별 한 줄 (R H E B)'] {
-  game_id varchar(14) [not null, note: '경기ID - 경기(FK) [도메인 d_game_id]']
-  team_id char(2) [not null, note: '팀ID - 팀(FK). 그 경기의 홈팀 또는 원정팀이어야 함(트리거로 검사) [도메인 d_team_id]']
-  home_away char(1) [not null, note: '홈원정구분 - H 홈, A 원정. 경기의 팀ID에서 유도되지만 조회 편의를 위해 저장하고 트리거로 일관성을 보장']
-  result char(1) [not null, note: '승패 - W 승, L 패, D 무']
-  runs smallint [not null, note: '득점 - R [도메인 d_count]']
-  hits smallint [not null, note: '안타 - H [도메인 d_count]']
-  errors smallint [not null, note: '실책 - E [도메인 d_count]']
-  walks_hbp smallint [not null, note: '4사구 - B (볼넷+몸에 맞는 공) [도메인 d_count]']
+Table match_team [note: '팀경기기록: 경기 스코어보드의 팀별 한 줄 (R H E B)'] {
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_match_team_key']
+  match_id varchar(14) [not null, note: '경기ID - 경기(FK) [도메인 d_match_id]']
+  team_id varchar(2) [not null, note: '팀ID - 팀(FK). 그 경기의 홈팀 또는 원정팀이어야 함(트리거로 검사) [도메인 d_team_id]']
+  home_away varchar(1) [not null, note: '홈원정구분 - H 홈, A 원정. 경기의 팀ID에서 유도되지만 조회 편의를 위해 저장하고 트리거로 일관성을 보장']
+  result varchar(1) [not null, note: '승패 - W 승, L 패, D 무']
+  runs integer [not null, note: '득점 - R [도메인 d_count]']
+  hits integer [not null, note: '안타 - H [도메인 d_count]']
+  errors integer [not null, note: '실책 - E [도메인 d_count]']
+  walks_hbp integer [not null, note: '4사구 - B (볼넷+몸에 맞는 공) [도메인 d_count]']
   indexes {
-    (game_id, team_id) [pk]
+    (match_id, team_id) [unique]
+    (match_id, home_away) [unique]
   }
 }
 
 Table inning_score [note: '이닝득점: 스코어보드 이닝별 점수. kbodata의 i_1~i_18 반복 컬럼을 행으로 바꾼 것 (1NF)'] {
-  game_id varchar(14) [not null, note: '경기ID - (경기ID, 팀ID)가 팀경기기록(FK) [도메인 d_game_id]']
-  team_id char(2) [not null, note: '팀ID - 공격한 팀 [도메인 d_team_id]']
-  inning smallint [not null, note: '이닝 - 1~18 [도메인 d_inning]']
-  runs smallint [not null, note: '이닝득점 - 그 이닝 득점 (공격하지 않은 이닝은 행이 없음) [도메인 d_count]']
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_inning_score_key']
+  match_id varchar(14) [not null, note: '경기ID - (경기ID, 팀ID)가 팀경기기록(FK) [도메인 d_match_id]']
+  team_id varchar(2) [not null, note: '팀ID - 공격한 팀 [도메인 d_team_id]']
+  inning integer [not null, note: '이닝 - 1~18 [도메인 d_inning]']
+  runs integer [not null, note: '이닝득점 - 그 이닝 득점 (공격하지 않은 이닝은 행이 없음) [도메인 d_count]']
   indexes {
-    (game_id, team_id, inning) [pk]
+    (match_id, team_id, inning) [unique]
   }
 }
 
 Table pa_result_type [note: '타석결과유형: 안타·삼진·땅볼 등 결과 유형과 기록 집계 규칙(타수 포함 여부, 루타 수)'] {
   result_type varchar(20) [not null, pk, note: '결과유형코드 - SINGLE, DOUBLE, STRIKEOUT, GROUND_OUT 등']
   result_type_name varchar(20) [not null, note: '결과유형명 - 한글 이름']
-  batted_ball char(2) [note: '타구종류 - GB 땅볼, FB 뜬공, LD 직선타, BU 번트 (안타는 kbodata에 정보 없음)']
+  batted_ball varchar(2) [note: '타구종류 - GB 땅볼, FB 뜬공, LD 직선타, BU 번트 (안타는 kbodata에 정보 없음)']
   is_at_bat boolean [not null, note: '타수포함여부 - 타수(AB)에 들어가면 true']
   is_hit boolean [not null, note: '안타여부 - 안타면 true']
-  total_bases smallint [not null, note: '루타수 - 1루타 1 ~ 홈런 4']
+  total_bases integer [not null, note: '루타수 - 1루타 1 ~ 홈런 4']
   is_walk boolean [not null, note: '볼넷여부 - 볼넷·고의4구']
   is_hbp boolean [not null, note: '사구여부 - 몸에 맞는 공']
   is_sac_fly boolean [not null, note: '희생플라이여부 - 희생플라이']
@@ -159,97 +172,114 @@ Table pa_result_type [note: '타석결과유형: 안타·삼진·땅볼 등 결�
 }
 
 Table pa_result_code [note: '타석결과코드: kbodata config.ini [BATTER] 코드표 (좌중안=1020 등)'] {
-  result_code smallint [not null, pk, note: '결과코드 - kbodata 4자리 코드']
+  result_code integer [not null, pk, note: '결과코드 - kbodata 4자리 코드']
   result_name varchar(10) [not null, note: '결과명 - 박스스코어 표기 (예: 좌중안, 유땅, 삼진)']
   result_type varchar(20) [not null, note: '결과유형코드 - 타석결과유형(FK)']
-  fielder_pos smallint [note: '처리수비위치 - 타구를 처리한 첫 수비수 (1 투수 ~ 9 우익수)']
+  fielder_pos integer [note: '처리수비위치 - 타구를 처리한 첫 수비수 (1 투수 ~ 9 우익수)']
   spray_dir varchar(2) [note: '타구방향 - 스프레이 차트 구역 L 좌, LC 좌중, C 중, RC 우중, R 우']
+  indexes {
+    (result_name) [unique]
+  }
 }
 
-Table batter_game [note: '타자경기기록: 박스스코어 타자 한 줄. 이닝별 결과는 타석 테이블로 분리'] {
-  game_id varchar(14) [not null, note: '경기ID - (경기ID, 팀ID)가 팀경기기록(FK) [도메인 d_game_id]']
+Table batter_match [note: '타자경기기록: 박스스코어 타자 한 줄. 이닝별 결과는 타석 테이블로 분리'] {
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_batter_match_key']
+  match_id varchar(14) [not null, note: '경기ID - (경기ID, 팀ID)가 팀경기기록(FK) [도메인 d_match_id]']
   player_id integer [not null, note: '선수ID - 선수(FK) [도메인 d_player_id]']
-  team_id char(2) [not null, note: '팀ID - 출전 팀 (그 경기 두 팀 중 하나여야 함을 FK로 보장) [도메인 d_team_id]']
-  lineup_seq smallint [not null, note: '라인업순서 - 박스스코어 행 순서 (선발 다음에 교체 선수)']
-  batting_order smallint [note: '타순 - 1~9. kbodata가 타순 열을 버리므로 현재 NULL (❓ 원본 보강 필요)']
+  team_id varchar(2) [not null, note: '팀ID - 출전 팀 (그 경기 두 팀 중 하나여야 함을 FK로 보장) [도메인 d_team_id]']
+  lineup_seq integer [not null, note: '라인업순서 - 박스스코어 행 순서 (선발 다음에 교체 선수)']
+  batting_order integer [note: '타순 - 1~9. kbodata가 타순 열을 버리므로 현재 NULL (❓ 원본 보강 필요)']
   positions varchar(12) [note: '포지션이력 - kbodata 포지션 코드 문자열 (예: H8 = 대타 후 중견수). 표시용']
-  at_bats smallint [not null, note: '타수 - AB [도메인 d_count]']
-  hits smallint [not null, note: '안타 - H [도메인 d_count]']
-  rbi smallint [not null, note: '타점 - RBI [도메인 d_count]']
-  runs smallint [not null, note: '득점 - R [도메인 d_count]']
+  at_bats integer [not null, note: '타수 - AB [도메인 d_count]']
+  hits integer [not null, note: '안타 - H [도메인 d_count]']
+  rbi integer [not null, note: '타점 - RBI [도메인 d_count]']
+  runs integer [not null, note: '득점 - R [도메인 d_count]']
   indexes {
-    (game_id, player_id) [pk]
+    (match_id, player_id) [unique]
+    (match_id, team_id, lineup_seq) [unique]
   }
 }
 
 Table plate_appearance [note: '타석: 타자의 타석 하나. kbodata 타자 기록의 i_1~i_18 반복 그룹을 행으로 바꾼 것 (1NF)'] {
-  game_id varchar(14) [not null, note: '경기ID - (경기ID, 선수ID)가 타자경기기록(FK) [도메인 d_game_id]']
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_plate_appearance_key']
+  match_id varchar(14) [not null, note: '경기ID - (경기ID, 선수ID)가 타자경기기록(FK) [도메인 d_match_id]']
   player_id integer [not null, note: '선수ID - 타자 [도메인 d_player_id]']
-  inning smallint [not null, note: '이닝 - 타석이 들어선 이닝 [도메인 d_inning]']
-  seq_in_inning smallint [not null, note: '이닝내순번 - 한 이닝에 두 번 이상 타석에 서면 1, 2 ...']
-  result_code smallint [not null, note: '결과코드 - 타석결과코드(FK)']
+  inning integer [not null, note: '이닝 - 타석이 들어선 이닝 [도메인 d_inning]']
+  seq_in_inning integer [not null, note: '이닝내순번 - 한 이닝에 두 번 이상 타석에 서면 1, 2 ...']
+  result_code integer [not null, note: '결과코드 - 타석결과코드(FK)']
   indexes {
-    (game_id, player_id, inning, seq_in_inning) [pk]
+    (match_id, player_id, inning, seq_in_inning) [unique]
   }
 }
 
-Table pitcher_game [note: '투수경기기록: 박스스코어 투수 한 줄. 선발 여부는 등판순서=1로 유도(저장하지 않음)'] {
-  game_id varchar(14) [not null, note: '경기ID - (경기ID, 팀ID)가 팀경기기록(FK) [도메인 d_game_id]']
+Table pitcher_match [note: '투수경기기록: 박스스코어 투수 한 줄. 선발 여부는 등판순서=1로 유도(저장하지 않음)'] {
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_pitcher_match_key']
+  match_id varchar(14) [not null, note: '경기ID - (경기ID, 팀ID)가 팀경기기록(FK) [도메인 d_match_id]']
   player_id integer [not null, note: '선수ID - 선수(FK) [도메인 d_player_id]']
-  team_id char(2) [not null, note: '팀ID - 소속 팀 [도메인 d_team_id]']
-  appearance_seq smallint [not null, note: '등판순서 - 1이 선발']
-  decision char(1) [note: '승패세홀 - W 승, L 패, S 세이브, H 홀드, 없으면 NULL']
+  team_id varchar(2) [not null, note: '팀ID - 소속 팀 [도메인 d_team_id]']
+  appearance_seq integer [not null, note: '등판순서 - 1이 선발']
+  decision varchar(1) [note: '승패세홀 - W 승, L 패, S 세이브, H 홀드, 없으면 NULL']
   outs_recorded integer [not null, note: '아웃카운트 - 이닝×3 (6⅓이닝 = 19). kbodata 이닝 61 → 19 [도메인 d_outs]']
-  batters_faced smallint [not null, note: '상대타자수 - TBF [도메인 d_count]']
-  at_bats smallint [not null, note: '피타수 - 상대 타수 [도메인 d_count]']
-  pitches smallint [note: '투구수 - NP (과거 경기는 없을 수 있음) [도메인 d_count]']
-  hits_allowed smallint [not null, note: '피안타 - H [도메인 d_count]']
-  home_runs_allowed smallint [not null, note: '피홈런 - HR [도메인 d_count]']
-  walks_hbp smallint [not null, note: '4사구 - 볼넷+몸에 맞는 공 (kbodata는 둘을 합쳐서 제공) [도메인 d_count]']
-  strikeouts smallint [not null, note: '탈삼진 - SO [도메인 d_count]']
-  runs_allowed smallint [not null, note: '실점 - R [도메인 d_count]']
-  earned_runs smallint [not null, note: '자책점 - ER [도메인 d_count]']
+  batters_faced integer [not null, note: '상대타자수 - TBF [도메인 d_count]']
+  at_bats integer [not null, note: '피타수 - 상대 타수 [도메인 d_count]']
+  pitches integer [note: '투구수 - NP (과거 경기는 없을 수 있음) [도메인 d_count]']
+  hits_allowed integer [not null, note: '피안타 - H [도메인 d_count]']
+  home_runs_allowed integer [not null, note: '피홈런 - HR [도메인 d_count]']
+  walks_hbp integer [not null, note: '4사구 - 볼넷+몸에 맞는 공 (kbodata는 둘을 합쳐서 제공) [도메인 d_count]']
+  strikeouts integer [not null, note: '탈삼진 - SO [도메인 d_count]']
+  runs_allowed integer [not null, note: '실점 - R [도메인 d_count]']
+  earned_runs integer [not null, note: '자책점 - ER [도메인 d_count]']
   indexes {
-    (game_id, player_id) [pk]
+    (match_id, player_id) [unique]
+    (match_id, team_id, appearance_seq) [unique]
   }
 }
 
-Table game_event_type [note: '기타기록유형: 박스스코어 기타 기록의 항목 (결승타, 홈런, 도루, 실책 ...)'] {
+Table match_event_type [note: '기타기록유형: 박스스코어 기타 기록의 항목 (결승타, 홈런, 도루, 실책 ...)'] {
   event_type varchar(10) [not null, pk, note: '기록유형 - 박스스코어 항목명 그대로']
   name_en varchar(30) [not null, note: '영문명 - 영문 이름']
 }
 
-Table game_event [note: '경기기타기록: 결승타·홈런·도루·실책 등. 원문 한 항목에 이닝이 여러 개면 이닝마다 한 행'] {
+Table match_event [note: '경기기타기록: 결승타·홈런·도루·실책 등. 원문 한 항목에 이닝이 여러 개면 이닝마다 한 행'] {
   event_id bigint [not null, pk, note: '기록ID - 인조 식별자(자동 증가)']
-  game_id varchar(14) [not null, note: '경기ID - 경기(FK) [도메인 d_game_id]']
+  match_id varchar(14) [not null, note: '경기ID - 경기(FK) [도메인 d_match_id]']
   event_type varchar(10) [not null, note: '기록유형 - 기타기록유형(FK)']
-  seq smallint [not null, note: '순번 - 같은 경기·같은 유형 안에서의 순서']
+  seq integer [not null, note: '순번 - 같은 경기·같은 유형 안에서의 순서']
   player_id integer [note: '선수ID - 선수(FK). 이름 매핑 실패 시 NULL [도메인 d_player_id]']
-  team_id char(2) [note: '팀ID - 선수 소속 팀 (모르면 NULL) [도메인 d_team_id]']
+  team_id varchar(2) [note: '팀ID - 선수 소속 팀 (모르면 NULL) [도메인 d_team_id]']
   player_name_raw varchar(30) [not null, note: '원문선수명 - 박스스코어 표기 이름 [도메인 d_person_name]']
-  inning smallint [note: '이닝 - 발생 이닝 (없으면 NULL) [도메인 d_inning]']
+  inning integer [note: '이닝 - 발생 이닝 (없으면 NULL) [도메인 d_inning]']
   detail varchar(100) [note: '상세 - 괄호 안 내용 (예: 4회2점 김광현)']
   raw_text varchar(200) [not null, note: '원문 - kbodata ETC_info 원문 조각']
+  indexes {
+    (match_id, event_type, seq) [unique]
+  }
 }
 
 Table umpire [note: '심판: 심판 (원본에 ID가 없어 이름을 대체키로 사용)'] {
-  umpire_id smallint [not null, pk, note: '심판ID - 인조 식별자(자동 증가)']
+  umpire_id integer [not null, pk, note: '심판ID - 인조 식별자(자동 증가)']
   umpire_name varchar(30) [not null, note: '심판명 - 이름 (동명이인이 나오면 구분 규칙 필요) [도메인 d_person_name]']
+  indexes {
+    (umpire_name) [unique]
+  }
 }
 
-Table game_umpire [note: '경기심판: 경기와 심판의 M:N 관계를 푸는 연관 엔터티'] {
-  game_id varchar(14) [not null, note: '경기ID - 경기(FK) [도메인 d_game_id]']
-  umpire_id smallint [not null, note: '심판ID - 심판(FK)']
-  listed_order smallint [not null, note: '표기순서 - 박스스코어 나열 순서 (❓ 주심/누심 구분 규칙 확인 필요)']
+Table match_umpire [note: '경기심판: 경기와 심판의 M:N 관계를 푸는 연관 엔터티'] {
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_match_umpire_key']
+  match_id varchar(14) [not null, note: '경기ID - 경기(FK) [도메인 d_match_id]']
+  umpire_id integer [not null, note: '심판ID - 심판(FK)']
+  listed_order integer [not null, note: '표기순서 - 박스스코어 나열 순서 (❓ 주심/누심 구분 규칙 확인 필요)']
   indexes {
-    (game_id, umpire_id) [pk]
+    (match_id, umpire_id) [unique]
+    (match_id, listed_order) [unique]
   }
 }
 
 Table season_batting_official [note: '시즌타자기록(공식): KBO 기록실 시즌 누적 값. 화면에 직접 조회하고 경기 집계와 비교·검증한다'] {
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_season_batting_official_key']
   player_id integer [not null, note: '선수ID - 선수(FK) [도메인 d_player_id]']
-  season smallint [not null, note: '시즌 - 연도 [도메인 d_season]']
-  team_id char(2) [not null, note: '팀ID - 기록실 표기 팀 (❓ 이적 선수 행 분리 여부 확인 필요) [도메인 d_team_id]']
+  season integer [not null, note: '시즌 - 연도 [도메인 d_season]']
+  team_id varchar(2) [not null, note: '팀ID - 기록실 표기 팀 (❓ 이적 선수 행 분리 여부 확인 필요) [도메인 d_team_id]']
   games integer [note: '경기수 - G [도메인 d_total]']
   plate_appearances integer [note: '타석 - PA [도메인 d_total]']
   at_bats integer [note: '타수 - AB [도메인 d_total]']
@@ -273,14 +303,15 @@ Table season_batting_official [note: '시즌타자기록(공식): KBO 기록실 
   ops numeric(5,3) [note: 'OPS - 출루율+장타율 [도메인 d_slg]']
   crawled_at timestamptz [not null, note: '수집일시 - 기록실에서 받은 시각']
   indexes {
-    (player_id, season, team_id) [pk]
+    (player_id, season, team_id) [unique]
   }
 }
 
 Table season_pitching_official [note: '시즌투수기록(공식): KBO 기록실 시즌 누적 값 (화면 조회 및 경기 집계 검증용)'] {
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_season_pitching_official_key']
   player_id integer [not null, note: '선수ID - 선수(FK) [도메인 d_player_id]']
-  season smallint [not null, note: '시즌 - 연도 [도메인 d_season]']
-  team_id char(2) [not null, note: '팀ID - 기록실 표기 팀 [도메인 d_team_id]']
+  season integer [not null, note: '시즌 - 연도 [도메인 d_season]']
+  team_id varchar(2) [not null, note: '팀ID - 기록실 표기 팀 [도메인 d_team_id]']
   games integer [note: '경기수 - G [도메인 d_total]']
   wins integer [note: '승 - W [도메인 d_total]']
   losses integer [note: '패 - L [도메인 d_total]']
@@ -304,15 +335,16 @@ Table season_pitching_official [note: '시즌투수기록(공식): KBO 기록실
   whip numeric(6,2) [note: 'WHIP - (피안타+볼넷)/이닝 [도메인 d_era]']
   crawled_at timestamptz [not null, note: '수집일시 - 기록실에서 받은 시각']
   indexes {
-    (player_id, season, team_id) [pk]
+    (player_id, season, team_id) [unique]
   }
 }
 
 Table team_rank_official [note: '팀순위(공식): KBO 기록실 팀 순위 (기준일별). 경기 테이블로 계산한 순위 뷰와 비교·검증'] {
-  season smallint [not null, note: '시즌 - 연도 [도메인 d_season]']
-  team_id char(2) [not null, note: '팀ID - (팀ID, 시즌)이 팀시즌(FK) [도메인 d_team_id]']
+  id bigint [not null, pk, note: '일련번호 - 인조 식별자(JPA 엔티티 @Id). 업무 키는 uq_team_rank_official_key']
+  season integer [not null, note: '시즌 - 연도 [도메인 d_season]']
+  team_id varchar(2) [not null, note: '팀ID - (팀ID, 시즌)이 팀시즌(FK) [도메인 d_team_id]']
   as_of_date date [not null, note: '기준일 - 순위 기준 날짜']
-  rank smallint [not null, note: '순위 - 1~10']
+  rank integer [not null, note: '순위 - 1~10']
   games integer [not null, note: '경기수 - G [도메인 d_total]']
   wins integer [not null, note: '승 - W [도메인 d_total]']
   losses integer [not null, note: '패 - L [도메인 d_total]']
@@ -323,26 +355,28 @@ Table team_rank_official [note: '팀순위(공식): KBO 기록실 팀 순위 (�
   streak varchar(10) [note: '연속 - 원문 (예: 3승)']
   crawled_at timestamptz [not null, note: '수집일시 - 기록실에서 받은 시각']
   indexes {
-    (season, team_id, as_of_date) [pk]
+    (season, team_id, as_of_date) [unique]
   }
 }
 
-Ref fk_batter_game_player: batter_game.player_id > player.player_id [update: cascade, delete: restrict]
-Ref fk_batter_game_team_game: batter_game.(game_id, team_id) > team_game.(game_id, team_id) [update: cascade, delete: cascade]
-Ref fk_game_away_team_season: game.(away_team_id, season) > team_season.(team_id, season) [update: no action, delete: no action]
-Ref fk_game_home_team_season: game.(home_team_id, season) > team_season.(team_id, season) [update: no action, delete: no action]
-Ref fk_game_stadium: game.stadium_id > stadium.stadium_id [update: cascade, delete: set null]
-Ref fk_game_event_game: game_event.game_id > game.game_id [update: cascade, delete: cascade]
-Ref fk_game_event_player: game_event.player_id > player.player_id [update: cascade, delete: set null]
-Ref fk_game_event_team_game: game_event.(game_id, team_id) > team_game.(game_id, team_id) [update: cascade, delete: cascade]
-Ref fk_game_event_type: game_event.event_type > game_event_type.event_type [update: cascade, delete: restrict]
-Ref fk_game_umpire_game: game_umpire.game_id > game.game_id [update: cascade, delete: cascade]
-Ref fk_game_umpire_umpire: game_umpire.umpire_id > umpire.umpire_id [update: cascade, delete: restrict]
-Ref fk_inning_score_team_game: inning_score.(game_id, team_id) > team_game.(game_id, team_id) [update: cascade, delete: cascade]
+Ref fk_batter_match_match_team: batter_match.(match_id, team_id) > match_team.(match_id, team_id) [update: cascade, delete: cascade]
+Ref fk_batter_match_player: batter_match.player_id > player.player_id [update: cascade, delete: restrict]
+Ref fk_inning_score_match_team: inning_score.(match_id, team_id) > match_team.(match_id, team_id) [update: cascade, delete: cascade]
+Ref fk_match_away_team_season: match.(away_team_id, season) > team_season.(team_id, season) [update: no action, delete: no action]
+Ref fk_match_home_team_season: match.(home_team_id, season) > team_season.(team_id, season) [update: no action, delete: no action]
+Ref fk_match_stadium: match.stadium_id > stadium.stadium_id [update: cascade, delete: set null]
+Ref fk_match_event_match: match_event.match_id > match.match_id [update: cascade, delete: cascade]
+Ref fk_match_event_match_team: match_event.(match_id, team_id) > match_team.(match_id, team_id) [update: cascade, delete: cascade]
+Ref fk_match_event_player: match_event.player_id > player.player_id [update: cascade, delete: set null]
+Ref fk_match_event_type: match_event.event_type > match_event_type.event_type [update: cascade, delete: restrict]
+Ref fk_match_team_match: match_team.match_id > match.match_id [update: cascade, delete: cascade]
+Ref fk_match_team_team: match_team.team_id > team.team_id [update: cascade, delete: restrict]
+Ref fk_match_umpire_match: match_umpire.match_id > match.match_id [update: cascade, delete: cascade]
+Ref fk_match_umpire_umpire: match_umpire.umpire_id > umpire.umpire_id [update: cascade, delete: restrict]
 Ref fk_pa_result_code_type: pa_result_code.result_type > pa_result_type.result_type [update: cascade, delete: restrict]
-Ref fk_pitcher_game_player: pitcher_game.player_id > player.player_id [update: cascade, delete: restrict]
-Ref fk_pitcher_game_team_game: pitcher_game.(game_id, team_id) > team_game.(game_id, team_id) [update: cascade, delete: cascade]
-Ref fk_plate_appearance_batter_game: plate_appearance.(game_id, player_id) > batter_game.(game_id, player_id) [update: cascade, delete: cascade]
+Ref fk_pitcher_match_match_team: pitcher_match.(match_id, team_id) > match_team.(match_id, team_id) [update: cascade, delete: cascade]
+Ref fk_pitcher_match_player: pitcher_match.player_id > player.player_id [update: cascade, delete: restrict]
+Ref fk_plate_appearance_batter_match: plate_appearance.(match_id, player_id) > batter_match.(match_id, player_id) [update: cascade, delete: cascade]
 Ref fk_plate_appearance_code: plate_appearance.result_code > pa_result_code.result_code [update: cascade, delete: restrict]
 Ref fk_player_salary_player: player_salary.player_id > player.player_id [update: cascade, delete: cascade]
 Ref fk_player_season_player: player_season.player_id > player.player_id [update: cascade, delete: cascade]
@@ -351,8 +385,6 @@ Ref fk_sbo_player: season_batting_official.player_id > player.player_id [update:
 Ref fk_sbo_team_season: season_batting_official.(team_id, season) > team_season.(team_id, season) [update: cascade, delete: restrict]
 Ref fk_spo_player: season_pitching_official.player_id > player.player_id [update: cascade, delete: cascade]
 Ref fk_spo_team_season: season_pitching_official.(team_id, season) > team_season.(team_id, season) [update: cascade, delete: restrict]
-Ref fk_team_game_game: team_game.game_id > game.game_id [update: cascade, delete: cascade]
-Ref fk_team_game_team: team_game.team_id > team.team_id [update: cascade, delete: restrict]
 Ref fk_tro_team_season: team_rank_official.(team_id, season) > team_season.(team_id, season) [update: cascade, delete: restrict]
 Ref fk_team_season_stadium: team_season.home_stadium_id > stadium.stadium_id [update: cascade, delete: set null]
 Ref fk_team_season_team: team_season.team_id > team.team_id [update: cascade, delete: cascade]

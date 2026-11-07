@@ -1,44 +1,47 @@
 # 7. 물리적 데이터 모델
 
-> 담당: 이성수·김경주 · KBO 중심 수정본 (2026-11-06) · DDL: `erd/ddl/` · 테이블 기술서: `docs/report/10_table_spec.md`(자동 생성)
+> 담당: 이성수·김경주 · 팀 레포(gidgogo/KBO) 규칙 반영본 (2026-11-07) · DDL: `backend/src/main/resources/db/migration/` (Flyway) · 테이블 기술서: `docs/report/10_table_spec.md`(자동 생성)
 
 ## 7.1 DBMS와 객체 구성
 
 - PostgreSQL 16에서 실행 확인 (14 이상이면 동작). 스키마는 기본 `public`.
-- 초기 스키마는 `erd/ddl/00_create_all.sql`로 01~06을 실행한다. 통합 적재(07), 뷰 갱신(09), 기존 DB 전환(10), KBO 전용 적재(11), 개발용 전체 삭제(99)는 별도로 실행한다.
+- 스키마는 **Flyway 마이그레이션**으로 만든다. 팀 레포 백엔드(Spring Boot + JPA, `ddl-auto: validate`)가
+  시작할 때 `backend/src/main/resources/db/migration/V*.sql`을 순서대로 적용한다. 이미 적용(머지)된 파일은 고치지 않고
+  `V3__…sql`처럼 새 파일을 추가한다.
+- 데이터 적재는 스키마와 분리했다. `data-pipeline/sql/`의 psql 스크립트(`\copy` 사용)가 CSV를 넣는다.
 
 | 파일 | 내용 | 개수 |
 |---|---|---|
-| 01_domains.sql | 도메인 (자료형 + CHECK) | 13 |
-| 02_tables.sql | 테이블, PK·FK·UNIQUE·CHECK, 컬럼 주석 | 테이블 21, FK 29 |
-| 03_indexes.sql | 조회용 보조 인덱스 | 13 (+ MV 인덱스 5) |
-| 04_triggers.sql | 팀경기기록 홈/원정 일치 트리거 | 1 |
-| 05_views.sql | 화면용 뷰·MV, 검증 뷰, 함수 | 뷰 16, MV 3, 함수 2 (+트리거 함수 1) |
-| 06_reference_data.sql | 기준 데이터 적재 (data/reference) | |
-| 07_load_data.sql / 11_load_kbo.sql | 수집 데이터 적재 (재실행 안전) | |
-| 09_upgrade_views.sql | 기존 데이터를 보존하며 수정된 뷰 적용 | |
-| 10_kbo_only.sql | 네이버 객체를 보관 영역으로 이동, 현재 프로필 컬럼 추가 후 뷰 갱신 | |
-| 99_drop_all.sql | 개발용 전체 삭제 | |
+| V1__init_schema.sql | 테이블(PK·FK·UNIQUE·CHECK, 컬럼 주석), 보조 인덱스, 트리거, 뷰·MV·함수 | 테이블 21, FK 29, 인덱스 13 (+ MV 인덱스 3), 트리거 1, 뷰 16, MV 3 |
+| V2__reference_data.sql | 기준 데이터 (팀, 구장, 팀시즌, 타석결과 코드표, 기타기록 종류). `tools/gen_reference_migration.py`가 CSV에서 생성 | |
+| data-pipeline/sql/load_data.sql | 경기·선수·기록실 CSV 적재 (재실행 안전) + MV 갱신 | |
+| data-pipeline/sql/load_kbo.sql | 선수 프로필·기록실 공식 기록·순위만 적재 (경기 CSV 불필요) | |
 
 ## 7.2 명명 규칙 🟡 (김경주와 합의 필요)
 
-- 테이블·컬럼: 영어 소문자 snake_case, 테이블은 단수형 (`player`, `batter_game`)
-- 식별자 컬럼: `<엔터티>_id` (`player_id`, `game_id`), 코드 컬럼: `_code`, 여부: `is_` 접두어
+- 테이블·컬럼: 영어 소문자 snake_case, 테이블은 단수형 (`player`, `batter_match`)
+- 경기는 `match` (백엔드 패키지 `domain/{player,team,match}`와 통일). 경기 하위 기록은 `match_team`, `batter_match`,
+  `pitcher_match`, `match_event`, `match_umpire`
+- 식별자 컬럼: `<엔터티>_id` (`player_id`, `match_id`), 코드 컬럼: `_code`, 여부: `is_` 접두어
+- 복합 업무키 테이블의 대리키: `id` (`bigint` IDENTITY), 업무키 UNIQUE는 `uq_<표>_key`
 - 횟수: 복수형 영어 (`hits`, `at_bats`), 단위가 있으면 접미어 (`height_cm`, `salary_10k_krw`)
 - 제약조건: `pk_<표>`, `fk_<표>_<부모>`, `uq_<표>_<컬럼>`, `ck_<표>_<내용>`, 인덱스 `ix_<표>_<컬럼>`
 - 공식(기록실) 저장 테이블은 `_official`, 뷰는 `v_`, 머티리얼라이즈드 뷰는 `mv_` 접두어
 
 ## 7.3 자료형과 도메인
 
-도메인 정의서(9장)를 PostgreSQL `CREATE DOMAIN`으로 옮겼다. 같은 의미의 컬럼은 같은 도메인을 써서
-허용 범위가 한곳에서 관리된다. (예: 모든 선수ID는 `d_player_id` = 양의 정수)
+도메인 정의서(9장)의 도메인을 **기본 자료형 + 컬럼 CHECK**로 구현했다. (예: 선수ID는 `integer` + `CHECK (player_id > 0)`)
+처음에는 PostgreSQL `CREATE DOMAIN`을 썼지만, 팀 백엔드의 JPA `ddl-auto: validate`가 DOMAIN 타입을 엔티티의
+`Integer`/`String`과 다른 타입으로 보고 검증에 실패하므로 바꿨다. 같은 이유로 `smallint` → `integer`, `char(n)` → `varchar(n)`.
+어떤 컬럼이 어떤 도메인인지는 `erd/domain_columns.csv`에 남겨 9장 부록을 자동 생성한다.
+FK 컬럼(예: 타자경기기록의 선수ID)은 부모 키가 값을 보장하므로 CHECK를 반복하지 않았다.
 
 주요 결정
 - **이닝은 아웃카운트 정수로 저장**: kbodata `61`(=6⅓이닝), 기록실 `144 1/3` 모두 아웃 수(19, 433)로 바꾼다.
   소수(6.33)로 저장하면 6⅓+⅔ 같은 합산이 부정확하다. 표시는 함수 `fn_ip_display(19) = '6 1/3'`.
 - 타율·출루율·승률: `numeric(4,3)` (0~1), 장타율·OPS: `numeric(5,3)` (최대 4.000/5.000), ERA: `numeric(6,2)`.
   부동소수(`real`)는 반올림 오차 때문에 쓰지 않았다.
-- 경기 단위 횟수는 `smallint`(최대 32767), 시즌 누적은 `integer`.
+- 횟수는 경기 단위·시즌 누적 모두 `integer` (JPA `Integer`와 바로 대응).
 - 돈: 원화는 **만원 단위 정수**(`salary_10k_krw`), 외국인 달러 연봉은 별도 컬럼(`salary_usd`) — 한 컬럼에 단위가 섞이지 않게.
 
 ## 7.4 무결성 제약
@@ -47,18 +50,18 @@
 
 | 규칙 | 제약 |
 |---|---|
-| 안타 ≤ 타수 | `ck_batter_game_hits`, `ck_sbo_hits` |
-| 자책점 ≤ 실점, 피홈런 ≤ 피안타 ≤ 피타수 ≤ 상대타자수 | `ck_pitcher_game_er/hr/hits/ab` |
-| 홈팀 ≠ 원정팀, 더블헤더 0~2 | `ck_game_teams`, `ck_game_doubleheader` |
-| 경기ID = 날짜_원정팀홈팀더블헤더 | `ck_game_id_parts` (지능형 키 일관성) |
-| 승패는 W/L/D, 투수 결정은 W/L/S/H | `ck_team_game_result`, `ck_pitcher_game_decision` |
+| 안타 ≤ 타수 | `ck_batter_match_hits`, `ck_sbo_hits` |
+| 자책점 ≤ 실점, 피홈런 ≤ 피안타 ≤ 피타수 ≤ 상대타자수 | `ck_pitcher_match_er/hr/hits/ab` |
+| 홈팀 ≠ 원정팀, 더블헤더 0~2 | `ck_match_teams`, `ck_match_doubleheader` |
+| 경기ID = 날짜_원정팀홈팀더블헤더 | `ck_match_id_parts` (지능형 키 일관성) |
+| 승패는 W/L/D, 투수 결정은 W/L/S/H | `ck_match_team_result`, `ck_pitcher_match_decision` |
 | 안타 유형이면 루타 > 0 이고 타수 포함 | `ck_pa_result_type_hit`, `ck_pa_result_type_ab` |
 | 순위표 승+패+무 = 경기 | `ck_tro_games` |
 
 ### 트리거
 
-`trg_team_game_check_side` — 팀경기기록의 (팀ID, 홈원정구분)이 경기의 홈팀·원정팀과 일치해야 한다.
-홈/원정만 바꾸는 UPDATE는 `ck_game_id_parts`가 막고, 경기ID까지 바꾸면 CASCADE로 전파된 뒤 트리거가 다시 검사한다.
+`trg_match_team_check_side` — 팀경기기록의 (팀ID, 홈원정구분)이 경기의 홈팀·원정팀과 일치해야 한다.
+홈/원정만 바꾸는 UPDATE는 `ck_match_id_parts`가 막고, 경기ID까지 바꾸면 CASCADE로 전파된 뒤 트리거가 다시 검사한다.
 
 ### 참조 무결성 정책 (ON DELETE / ON UPDATE)
 
@@ -70,21 +73,29 @@
 | 식별자 값 수정 | ON UPDATE **CASCADE** | 선수ID 정정 | playerId 매핑 오류를 고치면 하위 기록에 자동 반영 |
 | 생성 컬럼이 들어간 FK | NO ACTION | 경기(팀ID, 시즌) → 팀시즌 | 생성 컬럼은 CASCADE로 바꿀 수 없음 |
 
-테스트(`tests/test_db.py`)에서 경기 삭제 시 CASCADE, 기록 있는 선수 삭제 시 RESTRICT 거부를 확인했다.
-KBO 전용 적재의 경기 보존, 기존 네이버 자료의 보관 전환, 불완전한 스코어보드의 전체 롤백도 검증한다.
+테스트(`data-pipeline/tests/test_db.py`)에서 경기 삭제 시 CASCADE, 기록 있는 선수 삭제 시 RESTRICT 거부를 확인했다.
+KBO 전용 적재의 경기 보존, 불완전한 스코어보드의 전체 롤백, 업무키 중복 거부(대리키가 있어도 UNIQUE로 막힘)도 검증한다.
 일반 FK는 자식 2행의 존재를 강제하지 않으므로 적재 커밋 전 별도 검사하고,
-`v_check_game_result`는 직접 수정으로 생긴 홈·원정 누락도 탐지한다.
+`v_check_match_result`는 직접 수정으로 생긴 홈·원정 누락도 탐지한다.
+
+### 대리키(id)와 업무키
+
+`match_team`, `batter_match`, `plate_appearance`처럼 기본키가 여러 컬럼이던 테이블은 `id bigint GENERATED BY DEFAULT AS IDENTITY`를
+PK로 두고, 원래의 복합 업무키는 `UNIQUE (uq_<표>_key)`로 바꿨다. JPA 엔티티는 `@Id Long id` 하나로 매핑하면 되고
+(`@EmbeddedId`·`@IdClass` 불필요), 업무 규칙(같은 경기에 같은 타자 한 줄)은 UNIQUE가 그대로 지킨다.
+FK는 부모의 업무키 UNIQUE를 참조하므로(예: `inning_score(match_id, team_id) → match_team(match_id, team_id)`)
+적재 스크립트와 조회 SQL은 바뀌지 않는다. 단일 자연키(`team.team_id`, `player.player_id`, `match.match_id`)는 그대로 PK다.
 
 ## 7.5 인덱스 설계
 
-PK·UNIQUE는 자동 인덱스가 생긴다. 복합 PK `(game_id, player_id)`는 경기로는 찾지만 선수로는 못 찾으므로,
-화면별 조회 패턴 중 **PK의 첫 컬럼이 아닌 조건**만 보조 인덱스를 만들었다.
+PK·UNIQUE는 자동 인덱스가 생긴다. 업무키 UNIQUE `(match_id, player_id)`는 경기로는 찾지만 선수로는 못 찾으므로,
+화면별 조회 패턴 중 **PK·업무키의 첫 컬럼이 아닌 조건**만 보조 인덱스를 만들었다.
 
 | 화면 / 조회 | 조건 | 인덱스 |
 |---|---|---|
-| 경기 결과: 날짜별 경기 | `game_date = ?` | `ix_game_date` |
-| 팀 프로필: 팀의 시즌 경기 | `home_team_id = ? AND season = ?` | `ix_game_home_team`, `ix_game_away_team`, `ix_team_game_team` |
-| 선수 프로필: 선수의 경기 기록 | `player_id = ?` | `ix_batter_game_player`, `ix_pitcher_game_player` |
+| 경기 결과: 날짜별 경기 | `match_date = ?` | `ix_match_date` |
+| 팀 프로필: 팀의 시즌 경기 | `home_team_id = ? AND season = ?` | `ix_match_home_team`, `ix_match_away_team`, `ix_match_team_team` |
+| 선수 프로필: 선수의 경기 기록 | `player_id = ?` | `ix_batter_match_player`, `ix_pitcher_match_player` |
 | 선수 프로필: 선수의 타석 집계 (2루타·홈런·볼넷…) | `plate_appearance.player_id = ?` | `ix_pa_player` (성능 확인 중 발견해 추가, 7.8) |
 | 선수 검색·이름 매핑 | `player_name = ?`, `(season, team_id, name_in_season)` | `ix_player_name`, `ix_player_season_lookup` |
 | 시즌 성적 MV | `(player_id, season, team_id)` | MV 유니크 인덱스 (REFRESH CONCURRENTLY 가능) |
@@ -99,8 +110,8 @@ PK·UNIQUE는 자동 인덱스가 생긴다. 복합 PK `(game_id, player_id)`는
 
 | 이름 | 종류 | 용도 |
 |---|---|---|
-| v_game_summary, v_game_pitchers | 뷰 | 경기 결과 화면 (팀명·점수·승리팀·구장, 선발·승·패·세 투수) |
-| v_batter_game_line | 뷰 | 타자 경기별 기록 + 타석 결과 집계(2루타·홈런·볼넷·삼진…) |
+| v_match_summary, v_match_pitchers | 뷰 | 경기 결과 화면 (팀명·점수·승리팀·구장, 선발·승·패·세 투수) |
+| v_batter_match_line | 뷰 | 타자 경기별 기록 + 타석 결과 집계(2루타·홈런·볼넷·삼진…) |
 | mv_season_batting / v_season_batting_total | MV / 뷰 | 시즌 타격 (팀별 / 이적 합산) — 타율·출루율·장타율·OPS |
 | mv_season_pitching / v_season_pitching_total | MV / 뷰 | 시즌 투구 — ERA, WHIP(사구 포함 근사), QS |
 | mv_team_standings | MV | 순위·승률·게임차·최근10경기·연속 (윈도 함수) |
@@ -111,8 +122,16 @@ PK·UNIQUE는 자동 인덱스가 생긴다. 복합 PK `(game_id, player_id)`는
 | v_compare_* | 검증 뷰 | 기록실 공식 값 vs 계산 값 (일치율) |
 
 **뷰 vs MV**: 시즌 성적·순위는 화면에서 자주 읽고 데이터 적재 때만 바뀐다 → MV로 계산 결과를 저장하고
-적재 후 `SELECT fn_refresh_stats();` 로 갱신한다(07_load_data.sql 마지막 줄). MV에는 유니크 인덱스가 있어
-서비스 중에도 `REFRESH MATERIALIZED VIEW CONCURRENTLY`로 읽기를 막지 않고 갱신할 수 있다.
+적재 후 `SELECT fn_refresh_stats();` 로 갱신한다.
+
+| 누가 | 언제 | 어떻게 |
+|---|---|---|
+| 데이터 적재 담당 (data-pipeline) | 경기 CSV를 적재·수정한 직후 1회 | `data-pipeline/sql/load_data.sql` 마지막 줄에서 자동 호출 |
+| 백엔드 | 갱신하지 않음 (MV는 읽기 전용) | 화면 조회만. 수동 갱신이 필요하면 `SELECT fn_refresh_stats();` |
+
+`fn_refresh_stats()`는 `REFRESH MATERIALIZED VIEW CONCURRENTLY`를 쓴다. MV마다 유니크 인덱스가 있어서
+갱신하는 동안에도 백엔드가 MV를 읽을 수 있다. 선수 프로필·기록실만 적재하는 `load_kbo.sql`은 경기 기록을 바꾸지
+않으므로 갱신이 필요 없다.
 
 **저장된 유도 값의 불일치 문제**: 만약 시즌 타율을 테이블에 저장했다면, 경기 기록 한 건을 고칠 때 시즌 표도
 같이 고쳐야 한다(갱신 이상). MV는 "언제 갱신했는가"만 관리하면 되고, `v_compare_batting_official`로
@@ -141,17 +160,17 @@ PK·UNIQUE는 자동 인덱스가 생긴다. 복합 PK `(game_id, player_id)`는
 
 | 조회 | 실행 계획 요약 | 실행 시간 |
 |---|---|---:|
-| Q1 선수 경기별 타격 (`batter_game.player_id = ?`) | Bitmap Index Scan on `ix_batter_game_player` (144행) | 0.04 ms |
-| Q1 비교: 같은 조회, 인덱스 삭제 | **Seq Scan** — 12,960행 중 12,816행 버림 | 0.73 ms (약 20배) |
-| Q2 하루 경기 목록 (`v_game_summary`) | `ix_game_date` 인덱스 → 5경기만 조인 | 0.37 ms |
+| Q1 선수 경기별 타격 (`batter_match.player_id = ?`) | Bitmap Index Scan on `ix_batter_match_player` (144행) | 0.03 ms |
+| Q1 비교: 같은 조회, 인덱스 삭제 | **Seq Scan** — 12,960행 중 12,816행 버림 | 0.76 ms (약 23배) |
+| Q2 하루 경기 목록 (`v_match_summary`) | `ix_match_date` 인덱스 → 5경기만 조인 | 0.30 ms |
 | Q3 선수 시즌 성적 (MV 읽기) | MV에서 1행 | 0.02 ms |
-| Q3 비교: MV 없이 경기 기록에서 직접 집계 | 타자 기록 144행 + 타석 576행 집계 | 1.09 ms |
-| Q4 순위 화면 (`mv_team_standings`) | MV 10행 정렬 | 0.04 ms |
-| MV 3개 다시 계산 (`fn_refresh_stats`) | 적재 후 1회 | 약 83 ms |
+| Q3 비교: MV 없이 경기 기록에서 직접 집계 | 타자 기록 144행 + 타석 576행 집계 | 0.86 ms |
+| Q4 순위 화면 (`mv_team_standings`) | MV 10행 정렬 | 0.02 ms |
+| MV 3개 다시 계산 (`fn_refresh_stats`) | 적재 후 1회 (CONCURRENTLY) | 약 64 ms |
 
 **발견하고 고친 것**: 처음 측정 때 Q3 비교 조회에서 `plate_appearance`를 **순차 탐색**(51,840행 중 51,264행 버림)했다.
-PK가 `(game_id, player_id, inning, seq_in_inning)`라 `player_id`만으로는 PK 인덱스를 쓸 수 없기 때문이다.
-`ix_pa_player`를 추가한 뒤 Bitmap Index Scan으로 바뀌었고 3.57 ms → 1.09 ms로 줄었다.
+업무키가 `(match_id, player_id, inning, seq_in_inning)`라 `player_id`만으로는 그 인덱스를 쓸 수 없기 때문이다.
+`ix_pa_player`를 추가한 뒤 Bitmap Index Scan으로 바뀌었고 3.57 ms → 약 1 ms로 줄었다 (2026-11-07 재측정 0.86 ms).
 2008~2025 전체를 적재하면 타석이 약 100만 행(시즌당 약 5만)이 되므로 차이는 더 커진다.
 
 **결론**: 시즌 성적·순위처럼 많이 읽는 유도 값은 MV로 미리 계산해 두면 조회는 수십 배 빠르고, 갱신 비용은 적재 때 1회(0.1초 미만)뿐이다.

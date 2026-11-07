@@ -19,7 +19,7 @@
 | D-09 | 선수 상세 (은퇴) | /Record/Retire/Hitter.aspx?playerId= (Pitcher.aspx) | 〃 | 선수 | crawl/kbo_profiles.py |
 | D-10 | 선수 일자별 기록 | /Record/Player/HitterDetail/Daily.aspx?playerId= | 출전 날짜 | (동명이인 구분용) | crawl/kbo_gamelogs.py |
 | D-11 | 팀 순위 | /Record/TeamRank/TeamRankDaily.aspx | 순위·승·패·무·승률·게임차·최근10경기·연속 | 팀순위_공식 | crawl/kbo_team_rank.py |
-| D-13 | 구단 정보 | KBO 구단 소개 / 구단 홈페이지 | 팀명 변경 이력, 연고지, 홈구장 | 팀, 팀시즌, 구장 | 직접 입력 (data/reference) |
+| D-13 | 구단 정보 | KBO 구단 소개 / 구단 홈페이지 | 팀명 변경 이력, 연고지, 홈구장 | 팀, 팀시즌, 구장 | 직접 입력 (data-pipeline/data/reference) |
 
 ## 5.2 별첨 3 — 수집 기록
 

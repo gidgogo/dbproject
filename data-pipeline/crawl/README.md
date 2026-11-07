@@ -1,13 +1,13 @@
 # KBO 수집·적재 가이드
 
-네이버 수집은 제외했다. 모든 명령은 레포 최상위 폴더에서 실행한다.
+네이버 수집은 제외했다. 모든 명령은 `data-pipeline/` 폴더에서 실행한다 (`cd data-pipeline`).
 
 ## 1. 준비
 
 ```bash
 python -m venv .venv
 source .venv/bin/activate
-pip install -r crawl/requirements.txt
+pip install -r requirements.txt
 ```
 
 페이지 구조가 바뀌어 실패하면 `python crawl/probe_kbo.py --season 2025`로 확인한다.
@@ -54,39 +54,34 @@ python crawl/kbo_team_rank.py --dates 2025-10-31
 
 ## 5. KBO 수집 결과만 DB에 적재
 
+스키마는 Flyway가 만든다(팀 레포 백엔드 실행 또는 레포 루트 README의 Flyway CLI 명령). 그다음 `data-pipeline/` 폴더에서:
+
 ```bash
 python etl/crawl_to_tables.py
-createdb kbo
-psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/00_create_all.sql
-psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/11_load_kbo.sql
+PGPASSWORD=kbo psql -h localhost -p 5434 -U kbo -d kbo -v ON_ERROR_STOP=1 -f sql/load_kbo.sql
 ```
 
-DB를 이미 만들었다면 `createdb`·`00_create_all.sql`을 반복하지 않는다.
-옛 네이버 포함 설계에서 전환할 때는 먼저 `10_kbo_only.sql`을 실행한다.
-전환 뒤에는 ETL을 다시 실행해야 새 프로필 컬럼 순서로 적재된다.
-`11_load_kbo.sql`은 재실행 가능하며 경기 파일이 필요 없다.
+`sql/load_kbo.sql`은 재실행 가능하며 경기 파일이 필요 없다.
 현재 프로필은 수집 시각이 같거나 더 최신인 경우에만 갱신한다. 이름만 있는 목록이나 오래된 프로필로
 최신 이름·소속·은퇴 여부·기존 연봉을 덮어쓰지 않는다.
-`10_kbo_only.sql`은 보관 이동과 뷰 교체를 함께 처리하므로 오류 시 전체 변경이 취소된다.
-보관 테이블이 있는 DB에서는 `99_drop_all.sql`을 거부한다. 전체 초기화가 필요하면 별도 개발 DB를 사용한다.
 
 화면은 `player`, `player_season`, `player_salary`, `season_batting_official`,
 `season_pitching_official`, `team_rank_official`을 읽는다. 경기 MV가 비어 있어도 공식 시즌 기록은 조회 가능하다.
 
 ## 6. 박스스코어가 확보된 경우에만 추가 적재
 
-kbodata 수집은 배인표 전처리 작업이다. 패치 안내는 [인수인계](../docs/handoff/preprocessing_baeinpyo.md)를 본다.
+kbodata 수집은 배인표 전처리 작업이다. 패치 안내는 [인수인계](../../docs/handoff/preprocessing_baeinpyo.md)를 본다.
 실제 JSON 경로를 지정한다.
 
 ```bash
 python etl/kbodata_to_tables.py /path/to/raw.json --players data/player_season_team.csv --check-only
 python etl/kbodata_to_tables.py /path/to/raw.json --players data/player_season_team.csv
-psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/07_load_data.sql
+PGPASSWORD=kbo psql -h localhost -p 5434 -U kbo -d kbo -v ON_ERROR_STOP=1 -f sql/load_data.sql
 ```
 
 동명이인은 playerId 자체와 별개로 이름→ID 매핑을 검증한다. 모호한 행을 임의로 연결하지 않는다.
 필요하면 `crawl/kbo_gamelogs.py --from-unmatched data/load/_unmatched_players.csv`로 출전일을 확인한다.
-스코어보드에 홈·원정 두 행이 없으면 적재 전체를 취소한다. 경기 집계 MV는 적재 후 갱신한다.
+스코어보드에 홈·원정 두 행이 없으면 적재 전체를 취소한다. 경기 집계 MV는 `sql/load_data.sql` 마지막 줄이 자동으로 갱신한다.
 박스스코어를 완전히 적재한 뒤 공식 시즌 기록과 비교한다.
 
 ## 수집 범위와 요청 방식
