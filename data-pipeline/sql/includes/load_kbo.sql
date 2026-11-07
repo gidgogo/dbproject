@@ -1,4 +1,5 @@
--- 07_load_data.sql / 11_load_kbo.sql 내부에서 트랜잭션 안에 실행
+-- load_data.sql / load_kbo.sql 내부에서 트랜잭션 안에 실행
+-- 복합키 테이블은 대리키 id가 있으므로 임시 테이블에서 id를 지우고(CSV에 없음) 컬럼을 명시해 넣는다.
 -- 1. 선수 ---------------------------------------------------------------
 CREATE TEMP TABLE stg_player (LIKE player INCLUDING DEFAULTS) ON COMMIT DROP;
 ALTER TABLE stg_player ALTER COLUMN is_retired DROP NOT NULL;
@@ -31,8 +32,10 @@ WHERE EXCLUDED.profile_crawled_at IS NOT NULL
   AND (player.profile_crawled_at IS NULL OR EXCLUDED.profile_crawled_at >= player.profile_crawled_at);
 
 CREATE TEMP TABLE stg_player_season (LIKE player_season) ON COMMIT DROP;
+ALTER TABLE stg_player_season DROP COLUMN id;
 \copy stg_player_season FROM 'data/load/player_season.csv' WITH (FORMAT csv, HEADER true)
-INSERT INTO player_season SELECT * FROM stg_player_season
+INSERT INTO player_season (player_id, season, team_id, name_in_season, is_batter, is_pitcher, uniform_no)
+SELECT player_id, season, team_id, name_in_season, is_batter, is_pitcher, uniform_no FROM stg_player_season
 ON CONFLICT (player_id, season, team_id) DO UPDATE SET
     name_in_season = EXCLUDED.name_in_season,
     is_batter      = player_season.is_batter OR EXCLUDED.is_batter,
@@ -40,8 +43,10 @@ ON CONFLICT (player_id, season, team_id) DO UPDATE SET
     uniform_no     = coalesce(EXCLUDED.uniform_no, player_season.uniform_no);
 
 CREATE TEMP TABLE stg_player_salary (LIKE player_salary) ON COMMIT DROP;
+ALTER TABLE stg_player_salary DROP COLUMN id;
 \copy stg_player_salary FROM 'data/load/player_salary.csv' WITH (FORMAT csv, HEADER true)
-INSERT INTO player_salary SELECT * FROM stg_player_salary
+INSERT INTO player_salary (player_id, season, salary_10k_krw, salary_usd, source_text)
+SELECT player_id, season, salary_10k_krw, salary_usd, source_text FROM stg_player_salary
 ON CONFLICT (player_id, season) DO UPDATE SET
     salary_10k_krw = EXCLUDED.salary_10k_krw, salary_usd = EXCLUDED.salary_usd,
     source_text = EXCLUDED.source_text
@@ -53,33 +58,44 @@ WHERE EXISTS (
 
 -- 2. 기록실 공식 기록 ---------------------------------------------------
 CREATE TEMP TABLE stg_sbo (LIKE season_batting_official) ON COMMIT DROP;
+ALTER TABLE stg_sbo DROP COLUMN id;
 ALTER TABLE stg_sbo ALTER COLUMN crawled_at DROP NOT NULL;
 \copy stg_sbo FROM 'data/load/season_batting_official.csv' WITH (FORMAT csv, HEADER true)
 DELETE FROM season_batting_official s USING stg_sbo t
  WHERE s.player_id = t.player_id AND s.season = t.season AND s.team_id = t.team_id;
-INSERT INTO season_batting_official
+INSERT INTO season_batting_official (
+       player_id, season, team_id, games, plate_appearances, at_bats, runs, hits, doubles, triples,
+       home_runs, total_bases, rbi, sac_bunts, sac_flies, walks, intentional_walks, hbp, strikeouts,
+       gidp, avg, obp, slg, ops, crawled_at)
 SELECT player_id, season, team_id, games, plate_appearances, at_bats, runs, hits, doubles, triples,
        home_runs, total_bases, rbi, sac_bunts, sac_flies, walks, intentional_walks, hbp, strikeouts,
        gidp, avg, obp, slg, ops, coalesce(crawled_at, now())
 FROM stg_sbo;
 
 CREATE TEMP TABLE stg_spo (LIKE season_pitching_official) ON COMMIT DROP;
+ALTER TABLE stg_spo DROP COLUMN id;
 ALTER TABLE stg_spo ALTER COLUMN crawled_at DROP NOT NULL;
 \copy stg_spo FROM 'data/load/season_pitching_official.csv' WITH (FORMAT csv, HEADER true)
 DELETE FROM season_pitching_official s USING stg_spo t
  WHERE s.player_id = t.player_id AND s.season = t.season AND s.team_id = t.team_id;
-INSERT INTO season_pitching_official
+INSERT INTO season_pitching_official (
+       player_id, season, team_id, games, wins, losses, saves, holds, outs_recorded, hits_allowed,
+       home_runs_allowed, walks, hbp, strikeouts, runs_allowed, earned_runs, batters_faced, pitches,
+       complete_games, shutouts, quality_starts, blown_saves, era, whip, crawled_at)
 SELECT player_id, season, team_id, games, wins, losses, saves, holds, outs_recorded, hits_allowed,
        home_runs_allowed, walks, hbp, strikeouts, runs_allowed, earned_runs, batters_faced, pitches,
        complete_games, shutouts, quality_starts, blown_saves, era, whip, coalesce(crawled_at, now())
 FROM stg_spo;
 
 CREATE TEMP TABLE stg_tro (LIKE team_rank_official) ON COMMIT DROP;
+ALTER TABLE stg_tro DROP COLUMN id;
 ALTER TABLE stg_tro ALTER COLUMN crawled_at DROP NOT NULL;
 \copy stg_tro FROM 'data/load/team_rank_official.csv' WITH (FORMAT csv, HEADER true)
 DELETE FROM team_rank_official s USING stg_tro t
  WHERE s.season = t.season AND s.team_id = t.team_id AND s.as_of_date = t.as_of_date;
-INSERT INTO team_rank_official
+INSERT INTO team_rank_official (
+       season, team_id, as_of_date, rank, games, wins, losses, draws, win_pct, games_behind,
+       last10, streak, crawled_at)
 SELECT season, team_id, as_of_date, rank, games, wins, losses, draws, win_pct, games_behind,
        last10, streak, coalesce(crawled_at, now())
 FROM stg_tro;

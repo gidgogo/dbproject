@@ -4,7 +4,7 @@
 근거: 공개 크롤러 icedo724/kbo-bayes (fetch_team_standings). ❓ probe 로 확인.
 
 기준일을 안 주면 그 시즌 마지막 경기일을 쓴다.
-  1) data/load/game.csv (kbodata 변환 결과)에 그 시즌 경기가 있으면 마지막 경기일
+  1) data/load/match.csv (kbodata 변환 결과)에 그 시즌 경기가 있으면 마지막 경기일
   2) 없으면 10월 31일 (페이지가 그 날짜 기준 순위를 보여 주는지 ❓ 확인 필요)
 
 사용 예:
@@ -35,7 +35,7 @@ COLS = ["season", "as_of_date", "rank", "team_id", "team_name", "games", "wins",
 
 
 def last_game_date(season: int) -> date:
-    dates = [r["game_date"] for r in read_csv(DATA / "load" / "game.csv") if r["game_date"].startswith(str(season))]
+    dates = [r["match_date"] for r in read_csv(DATA / "load" / "match.csv") if r["match_date"].startswith(str(season))]
     return date.fromisoformat(max(dates)) if dates else date(season, 10, 31)
 
 

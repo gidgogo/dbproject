@@ -1,0 +1,14 @@
+domain,base_type,check,description
+d_team_id,varchar(2),VALUE ~ '^[A-Z]{2}$',"팀ID: KBO 팀코드 2자리 영문 대문자 (OB, LT, SS, HH, LG, HT, SK, WO, NC, KT)"
+d_player_id,integer,VALUE > 0,선수ID: KBO 공식 홈페이지 playerId (예: 76232)
+d_match_id,varchar(14),VALUE ~ '^[0-9]{8}_[A-Z]{4}[0-9]$',경기ID: kbodata 형식 YYYYMMDD_원정팀코드홈팀코드더블헤더 (예: 20250601_OBWO0)
+d_season,integer,VALUE BETWEEN 1982 AND 2100,시즌: KBO 리그 출범(1982) 이후 연도
+d_inning,integer,VALUE BETWEEN 1 AND 18,이닝: 1~18 (kbodata가 18회까지 지원)
+d_count,integer,VALUE >= 0,"경기 단위 횟수: 0 이상 정수 (타수, 안타, 삼진 등)"
+d_total,integer,VALUE >= 0,시즌 누적 횟수: 0 이상 정수
+d_outs,integer,VALUE >= 0,아웃카운트: 투수 이닝을 아웃 수로 저장 (6⅓이닝 = 19)
+d_rate,"numeric(4,3)",VALUE BETWEEN 0 AND 1,"비율(0~1): 타율, 출루율, 승률 등 소수 셋째 자리"
+d_slg,"numeric(5,3)",VALUE BETWEEN 0 AND 5,"장타 비율: 장타율(최대 4.000), OPS(최대 5.000)"
+d_era,"numeric(6,2)",VALUE >= 0,"투수 비율 지표: 평균자책점, WHIP 등 소수 둘째 자리"
+d_hand,varchar(1),"VALUE IN ('L', 'R', 'S')","투타 방향: L 좌, R 우, S 양(스위치히터, 타격에만 사용)"
+d_person_name,varchar(30),length(btrim(VALUE)) > 0,인명: 공백만으로 된 값 금지

@@ -216,7 +216,7 @@ def main(argv: list[str] | None = None) -> int:
     setup_logging()
     p = Probe(args.season)
     p.run(args.retire_id)
-    out = ROOT / "docs" / "probe" / f"kbo_probe_{date.today():%Y%m%d}.md"
+    out = ROOT.parent / "docs" / "probe" / f"kbo_probe_{date.today():%Y%m%d}.md"  # 레포 최상위 docs/
     save_text(out, p.report())
     bad = [c for c in p.checks if not c[1]]
     print(f"결과: {out}  (확인 {len(p.checks)}개 중 실패 {len(bad)}개)")

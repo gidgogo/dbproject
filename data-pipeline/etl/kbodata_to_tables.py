@@ -13,8 +13,8 @@
         --players data/player_season_team.csv --check-only
 
 결과:
-    data/load/game.csv, team_game.csv, inning_score.csv, batter_game.csv,
-    plate_appearance.csv, pitcher_game.csv, game_event.csv, game_umpire_stage.csv
+    data/load/match.csv, match_team.csv, inning_score.csv, batter_match.csv,
+    plate_appearance.csv, pitcher_match.csv, match_event.csv, match_umpire_stage.csv
     data/load/_kbodata_report.md       변환 요약·경고
     data/load/_unmatched_players.csv   선수ID를 못 찾은 이름 (+ 후보 ID)
 """
@@ -42,19 +42,19 @@ from etl.reference import Reference  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 
 COLUMNS = {
-    "game": ["game_id", "game_date", "away_team_id", "home_team_id", "doubleheader_no", "series_id",
+    "match": ["match_id", "match_date", "away_team_id", "home_team_id", "doubleheader_no", "series_id",
              "stadium_id", "attendance", "start_time", "end_time", "duration_min"],
-    "team_game": ["game_id", "team_id", "home_away", "result", "runs", "hits", "errors", "walks_hbp"],
-    "inning_score": ["game_id", "team_id", "inning", "runs"],
-    "batter_game": ["game_id", "player_id", "team_id", "lineup_seq", "batting_order", "positions",
+    "match_team": ["match_id", "team_id", "home_away", "result", "runs", "hits", "errors", "walks_hbp"],
+    "inning_score": ["match_id", "team_id", "inning", "runs"],
+    "batter_match": ["match_id", "player_id", "team_id", "lineup_seq", "batting_order", "positions",
                     "at_bats", "hits", "rbi", "runs"],
-    "plate_appearance": ["game_id", "player_id", "inning", "seq_in_inning", "result_code"],
-    "pitcher_game": ["game_id", "player_id", "team_id", "appearance_seq", "decision", "outs_recorded",
+    "plate_appearance": ["match_id", "player_id", "inning", "seq_in_inning", "result_code"],
+    "pitcher_match": ["match_id", "player_id", "team_id", "appearance_seq", "decision", "outs_recorded",
                      "batters_faced", "at_bats", "pitches", "hits_allowed", "home_runs_allowed",
                      "walks_hbp", "strikeouts", "runs_allowed", "earned_runs"],
-    "game_event": ["game_id", "event_type", "seq", "player_id", "team_id", "player_name_raw",
+    "match_event": ["match_id", "event_type", "seq", "player_id", "team_id", "player_name_raw",
                    "inning", "detail", "raw_text"],
-    "game_umpire_stage": ["game_id", "umpire_name", "listed_order"],
+    "match_umpire_stage": ["match_id", "umpire_name", "listed_order"],
 }
 
 
@@ -100,8 +100,8 @@ class Converter:
         sid = self.ref.stadium_id(place, season)
         if place and sid is None:
             self.report.unknown_places[f"{place} ({season})"] += 1
-        self.rows["game"].append({
-            "game_id": gid, "game_date": gdate.isoformat(), "away_team_id": away, "home_team_id": home,
+        self.rows["match"].append({
+            "match_id": gid, "match_date": gdate.isoformat(), "away_team_id": away, "home_team_id": home,
             "doubleheader_no": dh, "series_id": 0, "stadium_id": sid,
             "attendance": to_int(etc.get("관중"), None),
             "start_time": parse_hhmm(etc.get("개시")), "end_time": parse_hhmm(etc.get("종료")),
@@ -131,12 +131,12 @@ class Converter:
                 self.report.warn(f"{gid}: {tid} 승패 값 해석 불가")
                 res = "D"
             team_result[tid] = res
-            self.rows["team_game"].append({"game_id": gid, "team_id": tid, "home_away": side, "result": res,
+            self.rows["match_team"].append({"match_id": gid, "team_id": tid, "home_away": side, "result": res,
                                            "runs": r, "hits": h, "errors": e, "walks_hbp": b})
             for inn, v in inning_vals.items():
                 runs = to_int(v, None)
                 if runs is not None and str(v).strip() not in ("-", ""):
-                    self.rows["inning_score"].append({"game_id": gid, "team_id": tid, "inning": inn, "runs": runs})
+                    self.rows["inning_score"].append({"match_id": gid, "team_id": tid, "inning": inn, "runs": runs})
 
         # 타자 / 타석 -----------------------------------------------------
         name_to_ids: dict[str, set[tuple[int, str]]] = defaultdict(set)
@@ -149,8 +149,8 @@ class Converter:
                     continue
                 name_to_ids[name].add((pid, tid))
                 order = to_int(row.get("bat_order", row.get("타순")), None)
-                self.rows["batter_game"].append({
-                    "game_id": gid, "player_id": pid, "team_id": tid, "lineup_seq": seq,
+                self.rows["batter_match"].append({
+                    "match_id": gid, "player_id": pid, "team_id": tid, "lineup_seq": seq,
                     "batting_order": order if order and 1 <= order <= 9 else None,
                     "positions": position_code(row.get("포지션" if raw else "position")),
                     "at_bats": to_int(row.get("타수" if raw else "bat_num")),
@@ -169,7 +169,7 @@ class Converter:
                         if code not in self.ref.pa_codes:
                             self.report.warn(f"{gid} {name} {inn}회: 코드표에 없는 결과코드 {code}")
                             continue
-                        self.rows["plate_appearance"].append({"game_id": gid, "player_id": pid, "inning": inn,
+                        self.rows["plate_appearance"].append({"match_id": gid, "player_id": pid, "inning": inn,
                                                               "seq_in_inning": k, "result_code": code})
 
         # 투수 -----------------------------------------------------------
@@ -208,10 +208,10 @@ class Converter:
                 name_to_ids[name].add((pid, tid))
                 if vals["pitches"] == 0 and vals["batters_faced"] > 0:
                     vals["pitches"] = None  # 과거 경기 투구수 누락
-                game_pitchers.append({"game_id": gid, "player_id": pid, "team_id": tid, "appearance_seq": seq,
+                game_pitchers.append({"match_id": gid, "player_id": pid, "team_id": tid, "appearance_seq": seq,
                                       "decision": decision, "outs_recorded": outs, **vals})
         self._fix_decisions(gid, game_pitchers, team_result, trust=raw)
-        self.rows["pitcher_game"].extend(game_pitchers)
+        self.rows["pitcher_match"].extend(game_pitchers)
 
         # 기타 기록 -------------------------------------------------------
         for etype, value in etc.items():
@@ -227,8 +227,8 @@ class Converter:
                 pid, tid = next(iter(ids)) if len(ids) == 1 else (None, None)
                 for inn in (parsed["innings"] or [None]):
                     seq += 1
-                    self.rows["game_event"].append({
-                        "game_id": gid, "event_type": etype, "seq": seq, "player_id": pid, "team_id": tid,
+                    self.rows["match_event"].append({
+                        "match_id": gid, "event_type": etype, "seq": seq, "player_id": pid, "team_id": tid,
                         "player_name_raw": parsed["name"][:30], "inning": inn,
                         "detail": (parsed["detail"] or None) and parsed["detail"][:100], "raw_text": item[:200]})
 
@@ -237,7 +237,7 @@ class Converter:
         if isinstance(umps, str):
             umps = umps.split()
         for i, u in enumerate([u for u in umps if str(u).strip()][:6], start=1):
-            self.rows["game_umpire_stage"].append({"game_id": gid, "umpire_name": str(u).strip(), "listed_order": i})
+            self.rows["match_umpire_stage"].append({"match_id": gid, "umpire_name": str(u).strip(), "listed_order": i})
 
     # ------------------------------------------------------------------
     def _map(self, season: int, team_id: str, name: str, kind: str, game_date: str, gid: str) -> int | None:
@@ -246,7 +246,7 @@ class Converter:
         res = self.mapper.match(season, team_id, name, kind, game_date)
         self.report.match_methods[res.method] += 1
         if res.player_id is None:
-            self.report.unmatched.append({"game_id": gid, "season": season, "team_id": team_id, "name": name,
+            self.report.unmatched.append({"match_id": gid, "season": season, "team_id": team_id, "name": name,
                                           "kind": kind, "reason": res.method,
                                           "candidates": " ".join(map(str, res.candidates))})
         return res.player_id
@@ -277,7 +277,7 @@ class Converter:
                 for r in self.rows[table]:
                     w.writerow({k: ("" if r.get(k) is None else r.get(k)) for k in cols})
         with open(out_dir / "_unmatched_players.csv", "w", newline="", encoding="utf-8") as f:
-            w = csv.DictWriter(f, fieldnames=["game_id", "season", "team_id", "name", "kind", "reason", "candidates"])
+            w = csv.DictWriter(f, fieldnames=["match_id", "season", "team_id", "name", "kind", "reason", "candidates"])
             w.writeheader()
             w.writerows(self.report.unmatched)
         (out_dir / "_kbodata_report.md").write_text(self.render_report(), encoding="utf-8")
@@ -309,12 +309,12 @@ class Converter:
             lines += ["", "## 구장 매핑 실패 (data/reference/stadium_place_map.csv 에 추가 필요)", "",
                       *[f"- {k}: {v}경기" for k, v in r.unknown_places.most_common()]]
         if r.unknown_event_types:
-            lines += ["", "## 모르는 기타기록 항목 (data/reference/game_event_type.csv 에 추가 필요)", "",
+            lines += ["", "## 모르는 기타기록 항목 (data/reference/match_event_type.csv 에 추가 필요)", "",
                       *[f"- {k}: {v}" for k, v in r.unknown_event_types.most_common()]]
         if r.unmatched:
             lines += ["", f"## 선수ID 매칭 실패 {len(r.unmatched)}건 (_unmatched_players.csv)", "",
                       "| 경기 | 팀 | 이름 | 구분 | 사유 | 후보 |", "|---|---|---|---|---|---|",
-                      *[f"| {u['game_id']} | {u['team_id']} | {u['name']} | {u['kind']} | {u['reason']} | {u['candidates']} |"
+                      *[f"| {u['match_id']} | {u['team_id']} | {u['name']} | {u['kind']} | {u['reason']} | {u['candidates']} |"
                         for u in r.unmatched[:200]]]
         if r.warnings:
             lines += ["", f"## 경고 {len(r.warnings)}건", "", *[f"- {w}" for w in r.warnings[:300]]]

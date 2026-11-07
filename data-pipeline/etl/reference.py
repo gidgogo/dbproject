@@ -52,7 +52,7 @@ class Reference:
         for r in read_csv(ref_dir / "stadium_place_map.csv"):
             to = int(r["to_season"]) if r["to_season"] else None
             ref.place_rules.append((r["place"], int(r["from_season"]), to, int(r["stadium_id"])))
-        ref.event_types = {r["event_type"] for r in read_csv(ref_dir / "game_event_type.csv")}
+        ref.event_types = {r["event_type"] for r in read_csv(ref_dir / "match_event_type.csv")}
         ref.pa_codes = {int(r["result_code"]) for r in read_csv(ref_dir / "pa_result_code.csv")}
         return ref
 
