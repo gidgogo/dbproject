@@ -52,13 +52,15 @@ kbodata는 `") "` 기준으로 잘라서 `"김준상(1회"`처럼 닫는 괄호�
 
 입력 매핑표 `data/player_season_team.csv` (성수 크롤링: `crawl/kbo_records.py`)
 
-1. 사람이 확인한 예외표 `data/reference/player_name_overrides.csv` (season, team_id, name, player_id, note)
+1. 사람이 확인한 예외표 `data/reference/player_name_overrides.csv` (season, team_id, name, player_id, match_id, note).
+   match_id를 적으면 그 경기에만 적용(같은 팀 동명이인), 비우면 그 시즌·팀 전체
 2. 같은 시즌·팀·이름 1명 → 확정
 3. 여러 명이면 타자/투수 구분
 4. 그래도 여러 명이면 선수별 출전 일자 (`crawl/kbo_gamelogs.py --from-unmatched data/load/_unmatched_players.csv`)
-5. 이름이 잘린 경우 앞부분 일치 (외국인 '페르난데' → '페르난데스')
-6. 공백·가운뎃점 차이 무시
-7. 같은 시즌 다른 팀에 1명 (이적 시점 차이)
+5. 그래도 여러 명이면 그날 수비 위치 ↔ 선수 프로필 포지션(`data/players.csv`). 대타·대주자는 투수가 아닌 후보
+6. 이름이 잘린 경우 앞부분 일치 (외국인 '페르난데' → '페르난데스')
+7. 공백·가운뎃점 차이 무시
+8. 같은 시즌 다른 팀에 1명 (이적 시점 차이). 여러 명이면 3~5단계로 다시 좁힘
 
 ## 5. 변환·검증 명령
 
@@ -67,7 +69,13 @@ python etl/kbodata_to_tables.py ~/Desktop/data/test/raw.json --players data/play
 ```
 
 → 타자 124명·투수 53명이 모두 매칭되는지(2-2 검증), 매칭 방법별 건수, 실패 목록, 투수 결정 이상 경기 수를 출력한다.
-`--check-only`를 빼면 `data/load/*.csv`(DB 테이블 컬럼 순서 그대로)와 `_kbodata_report.md`를 만든다.
+`--check-only`를 빼면 `data/load/*.csv`(DB 테이블 컬럼 순서 그대로)와 `_kbodata_report.md`, `_load_status.csv`를 만든다.
 
-이 변환기는 ERD 검증용 **참고 구현**이다. 인표가 전처리를 따로 만들면 출력 CSV 컬럼만 `data/load/*.csv`와 맞춰 주면
-`data-pipeline/sql/load_data.sql`로 바로 적재된다 (data-pipeline 폴더에서 실행, 팀 docker DB localhost:5434 kbo/kbo/kbo).
+**선수ID를 못 찾은 선수나 코드표에 없는 타석 결과가 하나라도 있으면** 적재용 CSV를 만들지 않고(이전 것도 지움)
+종료 코드 1로 멈춘다. `_load_status.csv`가 `blocked`이면 `load_data.sql`도 아무것도 바꾸지 않는다.
+리포트의 실패 목록을 보고 예외표에 추가한 뒤 다시 실행한다.
+
+이 변환기는 ERD 검증용 **참고 구현**이다. 인표가 전처리를 따로 만들면 출력 CSV 컬럼을 `data/load/*.csv`와 맞추고
+`_load_status.csv`(`status,detail` / `ok,…`)를 같이 만들면 `data-pipeline/sql/load_data.sql`로 적재된다
+(data-pipeline 폴더에서 실행, 팀 docker DB localhost:5434 kbo/kbo/kbo). 적재 스크립트는 커밋 전에 타자·투수 행 번호가
+1..n으로 이어지는지, 팀 안타·득점 = 타자 합인지 검사해서 어긋나면 전체를 되돌린다.

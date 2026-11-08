@@ -1110,7 +1110,9 @@ FROM q;
 COMMENT ON VIEW v_batting_percentile IS '타자백분위: 규정타석 이상 타자 중 백분위 (삼진율은 낮을수록 높은 백분위)';
 
 -- ---------------------------------------------------------------------
--- 6. 데이터 검증 뷰 (행이 나오면 문제가 있는 것)
+-- 6. 데이터 검증 뷰
+--   v_check_*   : 문제가 있는 행만 나온다. 0행이면 정상
+--   v_compare_* : 비교 대상 전체가 나온다. 불일치는 WHERE is_match IS NOT TRUE 로 확인
 -- ---------------------------------------------------------------------
 CREATE VIEW v_check_team_runs AS
 SELECT t.match_id, t.team_id, t.runs, coalesce(sum(i.runs), 0) AS inning_runs_sum
@@ -1149,17 +1151,24 @@ COMMENT ON VIEW v_check_match_result IS '검증: 홈·원정 기록이 누락되
 
 CREATE VIEW v_check_pitcher_decision AS
 SELECT g.match_id,
-       count(*) FILTER (WHERE pg.decision = 'W') AS w_cnt,
-       count(*) FILTER (WHERE pg.decision = 'L') AS l_cnt,
-       bool_or(t.result = 'D')                    AS is_draw
+       count(*) FILTER (WHERE pg.decision = 'W')                     AS w_cnt,
+       count(*) FILTER (WHERE pg.decision = 'L')                     AS l_cnt,
+       count(*) FILTER (WHERE pg.decision = 'S')                     AS s_cnt,
+       count(*) FILTER (WHERE pg.decision = 'W' AND t.result <> 'W') AS w_not_winner,
+       count(*) FILTER (WHERE pg.decision = 'L' AND t.result <> 'L') AS l_not_loser,
+       count(*) FILTER (WHERE pg.decision = 'S' AND t.result <> 'W') AS s_not_winner,
+       bool_or(t.result = 'D')                                       AS is_draw
 FROM match g
 JOIN pitcher_match pg ON pg.match_id = g.match_id
 JOIN match_team t     ON t.match_id = g.match_id AND t.team_id = pg.team_id
 GROUP BY g.match_id
-HAVING (bool_or(t.result = 'D') AND (count(*) FILTER (WHERE pg.decision IN ('W', 'L')) > 0))
+HAVING count(*) FILTER (WHERE pg.decision = 'W' AND t.result <> 'W') > 0   -- 승리투수는 이긴 팀
+    OR count(*) FILTER (WHERE pg.decision = 'L' AND t.result <> 'L') > 0   -- 패전투수는 진 팀
+    OR count(*) FILTER (WHERE pg.decision = 'S' AND t.result <> 'W') > 0   -- 세이브는 이긴 팀
+    OR count(*) FILTER (WHERE pg.decision = 'S') > 1
     OR (NOT bool_or(t.result = 'D') AND (count(*) FILTER (WHERE pg.decision = 'W') <> 1
                                          OR count(*) FILTER (WHERE pg.decision = 'L') <> 1));
-COMMENT ON VIEW v_check_pitcher_decision IS '검증: 승리/패전 투수가 정확히 1명씩이 아닌 경기 (kbodata 결과 변환 버그 탐지)';
+COMMENT ON VIEW v_check_pitcher_decision IS '검증: 승리·패전 투수가 1명씩이 아니거나, 승리·세이브가 진 팀·패전이 이긴 팀에 있는 경기 (무승부는 승패 없음)';
 
 -- 기록실 공식 값과 계산 값 비교 (보고서 "일치율" 근거)
 CREATE VIEW v_compare_batting_official AS
@@ -1205,11 +1214,12 @@ SELECT o.player_id, o.season,
        o.h AS h_off, c.hits_allowed AS h_calc, o.so AS so_off, c.strikeouts AS so_calc,
        o.er AS er_off, c.earned_runs AS er_calc, o.era AS era_off, c.era AS era_calc,
        (c.player_id IS NOT NULL
+        AND o.w = c.wins AND o.l = c.losses AND o.sv = c.saves AND o.hld = c.holds
         AND o.outs = c.outs_recorded AND o.h = c.hits_allowed AND o.so = c.strikeouts
         AND o.er = c.earned_runs) AS is_match
 FROM o
 LEFT JOIN v_season_pitching_total c ON c.player_id = o.player_id AND c.season = o.season;
-COMMENT ON VIEW v_compare_pitching_official IS '검증: 기록실 시즌 투구 vs 경기 기록 집계';
+COMMENT ON VIEW v_compare_pitching_official IS '검증: 기록실 시즌 투구 vs 경기 기록 집계 (is_match = 승·패·세·홀·아웃·피안타·삼진·자책 모두 일치)';
 
 CREATE VIEW v_compare_team_rank AS
 SELECT o.season, o.team_id, o.as_of_date,

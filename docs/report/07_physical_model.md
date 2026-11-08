@@ -119,7 +119,7 @@ PK·UNIQUE는 자동 인덱스가 생긴다. 업무키 UNIQUE `(match_id, player
 | v_spray_chart | 뷰 | 타구 방향(5구역) × 결과 유형 |
 | v_batting_percentile | 뷰 | 규정타석 이상 타자 백분위 (경기 데이터 적재 후 사용) |
 | v_check_* | 검증 뷰 | 행이 나오면 데이터 문제 (득점 합, 안타 합, 타석 변환, 승패, 투수 결정) |
-| v_compare_* | 검증 뷰 | 기록실 공식 값 vs 계산 값 (일치율) |
+| v_compare_* | 검증 뷰 | 기록실 공식 값 vs 계산 값. 전체 행이 나오고 불일치는 `is_match IS NOT TRUE` (일치율) |
 
 **뷰 vs MV**: 시즌 성적·순위는 화면에서 자주 읽고 데이터 적재 때만 바뀐다 → MV로 계산 결과를 저장하고
 적재 후 `SELECT fn_refresh_stats();` 로 갱신한다.

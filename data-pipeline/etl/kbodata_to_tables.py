@@ -17,6 +17,13 @@
     plate_appearance.csv, pitcher_match.csv, match_event.csv, match_umpire_stage.csv
     data/load/_kbodata_report.md       변환 요약·경고
     data/load/_unmatched_players.csv   선수ID를 못 찾은 이름 (+ 후보 ID)
+    data/load/_load_status.csv         ok / blocked. sql/load_data.sql 이 ok 일 때만 적재한다
+
+적재 중단(blocked): 아래 중 하나라도 있으면 기록이 빠진 채 적재되지 않도록 적재용 CSV를 만들지 않고
+(이전 실행의 CSV도 지운다) 종료 코드 1로 끝난다. 리포트와 _unmatched_players.csv 를 보고 고친 뒤 다시 실행한다.
+    - 선수ID를 못 찾은 선수 (매핑표가 없을 때 포함) → player_name_overrides.csv 에 추가
+    - 코드표에 없거나 해석할 수 없는 타석 결과
+    - 스코어보드가 2행이 아닌 경기, 해석할 수 없는 투수 이닝
 """
 from __future__ import annotations
 
@@ -71,9 +78,17 @@ class Report:
     unknown_event_types: Counter = field(default_factory=Counter)
     batters_total: int = 0
     pitchers_total: int = 0
+    blocking: list[str] = field(default_factory=list)   # 적재를 막는 문제 (기록 누락·오류)
 
     def warn(self, msg: str) -> None:
         self.warnings.append(msg)
+
+    def block(self, msg: str) -> None:
+        self.blocking.append(msg)
+
+    @property
+    def blocked(self) -> bool:
+        return bool(self.blocking or self.unmatched)
 
 
 class Converter:
@@ -111,7 +126,7 @@ class Converter:
         # 팀 경기 / 이닝 득점 -------------------------------------------
         board = c.get("scoreboard") or []
         if len(board) != 2:
-            self.report.warn(f"{gid}: 스코어보드 행 수 {len(board)} (2가 아님) → 건너뜀")
+            self.report.block(f"{gid}: 스코어보드 행 수 {len(board)} (2가 아님) → 경기 전체를 변환하지 못함")
             return
         team_result = {}
         for side, row, tid in (("A", board[0], away), ("H", board[1], home)):
@@ -144,7 +159,8 @@ class Converter:
             for seq, row in enumerate(c.get(key) or [], start=1):
                 self.report.batters_total += 1
                 name = str(row.get("선수명" if raw else "name", "")).strip()
-                pid = self._map(season, tid, name, "batter", gdate.isoformat(), gid)
+                positions = position_code(row.get("포지션" if raw else "position"))
+                pid = self._map(season, tid, name, "batter", gdate.isoformat(), gid, positions)
                 if pid is None:
                     continue
                 name_to_ids[name].add((pid, tid))
@@ -152,7 +168,7 @@ class Converter:
                 self.rows["batter_match"].append({
                     "match_id": gid, "player_id": pid, "team_id": tid, "lineup_seq": seq,
                     "batting_order": order if order and 1 <= order <= 9 else None,
-                    "positions": position_code(row.get("포지션" if raw else "position")),
+                    "positions": positions,
                     "at_bats": to_int(row.get("타수" if raw else "bat_num")),
                     "hits": to_int(row.get("안타" if raw else "hit")),
                     "rbi": to_int(row.get("타점" if raw else "hit_get")),
@@ -163,11 +179,11 @@ class Converter:
                     try:
                         codes = text_to_codes(cell, self.name_map) if raw else split_pa_codes(cell)
                     except ValueError as e:
-                        self.report.warn(f"{gid} {name} {inn}회: {e}")
+                        self.report.block(f"{gid} {name} {inn}회: 타석 결과를 해석할 수 없음 ({e})")
                         continue
                     for k, code in enumerate(codes, start=1):
                         if code not in self.ref.pa_codes:
-                            self.report.warn(f"{gid} {name} {inn}회: 코드표에 없는 결과코드 {code}")
+                            self.report.block(f"{gid} {name} {inn}회: 코드표에 없는 결과코드 {code}")
                             continue
                         self.rows["plate_appearance"].append({"match_id": gid, "player_id": pid, "inning": inn,
                                                               "seq_in_inning": k, "result_code": code})
@@ -194,7 +210,7 @@ class Converter:
                     try:
                         outs = outs_from_kbodata_inning(row.get("inning"))
                     except ValueError as e:
-                        self.report.warn(f"{gid} {name}: {e}")
+                        self.report.block(f"{gid} {name}: 투수 이닝을 해석할 수 없음 ({e})")
                         outs = 0
                     vals = {k: to_int(row.get(s)) for k, s in (
                         ("batters_faced", "batternum"), ("at_bats", "battednum"), ("pitches", "pitchnum"),
@@ -240,10 +256,14 @@ class Converter:
             self.rows["match_umpire_stage"].append({"match_id": gid, "umpire_name": str(u).strip(), "listed_order": i})
 
     # ------------------------------------------------------------------
-    def _map(self, season: int, team_id: str, name: str, kind: str, game_date: str, gid: str) -> int | None:
+    def _map(self, season: int, team_id: str, name: str, kind: str, game_date: str, gid: str,
+             positions: str | None = None) -> int | None:
         if self.mapper is None:
+            self.report.match_methods["no_mapping_table"] += 1
+            self.report.unmatched.append({"match_id": gid, "season": season, "team_id": team_id, "name": name,
+                                          "kind": kind, "reason": "no_mapping_table", "candidates": ""})
             return None
-        res = self.mapper.match(season, team_id, name, kind, game_date)
+        res = self.mapper.match(season, team_id, name, kind, game_date, positions, gid)
         self.report.match_methods[res.method] += 1
         if res.player_id is None:
             self.report.unmatched.append({"match_id": gid, "season": season, "team_id": team_id, "name": name,
@@ -269,25 +289,43 @@ class Converter:
 
     # ------------------------------------------------------------------
     def write(self, out_dir: Path) -> None:
+        """blocked 이면 적재용 CSV를 쓰지 않고, 이전 실행에서 남은 CSV도 지운다(불완전한 기록 적재 방지)."""
         out_dir.mkdir(parents=True, exist_ok=True)
+        blocked = self.report.blocked
         for table, cols in COLUMNS.items():
-            with open(out_dir / f"{table}.csv", "w", newline="", encoding="utf-8") as f:
+            path = out_dir / f"{table}.csv"
+            if blocked:
+                path.unlink(missing_ok=True)
+                continue
+            with open(path, "w", newline="", encoding="utf-8") as f:
                 w = csv.DictWriter(f, fieldnames=cols)
                 w.writeheader()
                 for r in self.rows[table]:
                     w.writerow({k: ("" if r.get(k) is None else r.get(k)) for k in cols})
+        with open(out_dir / "_load_status.csv", "w", newline="", encoding="utf-8") as f:
+            w = csv.writer(f)
+            w.writerow(["status", "detail"])
+            w.writerow(["blocked" if blocked else "ok", self.status_detail()])
         with open(out_dir / "_unmatched_players.csv", "w", newline="", encoding="utf-8") as f:
             w = csv.DictWriter(f, fieldnames=["match_id", "season", "team_id", "name", "kind", "reason", "candidates"])
             w.writeheader()
             w.writerows(self.report.unmatched)
         (out_dir / "_kbodata_report.md").write_text(self.render_report(), encoding="utf-8")
 
+    def status_detail(self) -> str:
+        r = self.report
+        if not r.blocked:
+            return f"{r.games}경기 변환 완료"
+        return f"선수ID 실패 {len(r.unmatched)}건, 기타 적재 중단 사유 {len(r.blocking)}건 (_kbodata_report.md 참고)"
+
     def render_report(self) -> str:
         r = self.report
         total = sum(r.match_methods.values())
-        matched = total - r.match_methods.get("unmatched", 0) - r.match_methods.get("ambiguous", 0)
+        matched = total - len(r.unmatched)
         lines = [
             "# kbodata 변환 리포트", "",
+            ("> ⛔ **적재 중단**: " + self.status_detail() + ". 적재용 CSV를 만들지 않았다. 아래 목록을 고친 뒤 다시 실행할 것."
+             if r.blocked else "> ✅ 적재 가능: 선수ID를 모두 찾았고 타석 결과도 모두 코드표에 있다."), "",
             f"- 경기 수: {r.games} (변환 전 원본 형식 {r.raw_format_games}경기)",
             f"- 타자 행: {r.batters_total}, 투수 행: {r.pitchers_total}",
             f"- 선수ID 매칭: {matched}/{total}" + (f" ({100 * matched / total:.1f}%)" if total else ""),
@@ -316,6 +354,8 @@ class Converter:
                       "| 경기 | 팀 | 이름 | 구분 | 사유 | 후보 |", "|---|---|---|---|---|---|",
                       *[f"| {u['match_id']} | {u['team_id']} | {u['name']} | {u['kind']} | {u['reason']} | {u['candidates']} |"
                         for u in r.unmatched[:200]]]
+        if r.blocking:
+            lines += ["", f"## 적재 중단 사유 {len(r.blocking)}건", "", *[f"- {w}" for w in r.blocking[:300]]]
         if r.warnings:
             lines += ["", f"## 경고 {len(r.warnings)}건", "", *[f"- {w}" for w in r.warnings[:300]]]
         return "\n".join(lines) + "\n"
@@ -329,15 +369,18 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--overrides", type=Path, default=ROOT / "data" / "reference" / "player_name_overrides.csv")
     ap.add_argument("--game-dates", type=Path, default=ROOT / "data" / "player_game_dates.csv",
                     help="동명이인 구분용 선수별 출전 일자 (crawl/kbo_gamelogs.py 결과, 없으면 생략)")
+    ap.add_argument("--profiles", type=Path, default=ROOT / "data" / "players.csv",
+                    help="동명이인 구분용 선수 프로필 포지션 (crawl/kbo_profiles.py 결과, 없으면 생략)")
     ap.add_argument("--out", type=Path, default=ROOT / "data" / "load")
     ap.add_argument("--check-only", action="store_true", help="CSV를 쓰지 않고 매핑 결과만 출력")
     args = ap.parse_args(argv)
 
     mapper = None
     if args.players.exists():
-        mapper = PlayerMapper.from_files(args.players, args.overrides, args.game_dates)
+        mapper = PlayerMapper.from_files(args.players, args.overrides, args.game_dates, args.profiles)
     else:
-        print(f"[경고] 선수 매핑표가 없음: {args.players} → 선수 관련 행은 만들지 않음", file=sys.stderr)
+        print(f"[오류] 선수 매핑표가 없음: {args.players} → 선수ID를 찾을 수 없어 적재용 CSV를 만들지 않음",
+              file=sys.stderr)
 
     conv = Converter(Reference.load(), mapper)
     for g in load_games(args.raw):
@@ -346,6 +389,10 @@ def main(argv: list[str] | None = None) -> int:
         print(conv.render_report())
     else:
         conv.write(args.out)
+    if conv.report.blocked:
+        print(f"[적재 중단] {conv.status_detail()} → {args.out / '_kbodata_report.md'}", file=sys.stderr)
+        return 1
+    if not args.check_only:
         print(f"변환 완료 → {args.out} (리포트: {args.out / '_kbodata_report.md'})")
     return 0
 
