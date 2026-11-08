@@ -3,7 +3,7 @@
 > 담당: 이성수 · 초안 v0 (2026-11-05)
 > - 8.1 표준 단어: 컬럼 이름을 만들 때 쓰는 단어와 영문 약어 (사람이 정리)
 > - 8.2 야구 기록 용어: 보고서·화면에 나오는 기록 용어의 뜻과 계산 규칙
-> - 8.3 표준 용어(논리명 ↔ 물리명): `08_glossary_terms.md` (DDL 주석에서 자동 생성, 156개)
+> - 8.3 표준 용어(논리명 ↔ 물리명): `08_glossary_terms.md` (DDL 주석에서 자동 생성)
 
 ## 8.1 표준 단어
 
@@ -13,18 +13,17 @@
 | 시즌 | Season | season | 연도 |
 | 구장 | Stadium | stadium | |
 | 선수 | Player | player | |
-| 경기 | Game | game | |
+| 경기 | Game | match | |
 | 심판 | Umpire | umpire | |
 | 타자 | Batter | batter | |
 | 투수 | Pitcher | pitcher | |
 | 타석 | Plate Appearance | pa / plate_appearance | 약어 PA |
-| 투구 | Pitch | pitch | 공 하나 |
 | 이닝 | Inning | inning | |
 | 기록 | Record | (생략) / official | 기록실 공식 값은 `_official` |
 | 식별자 | Identifier | _id | 예: player_id |
 | 코드 | Code | _code | 예: result_code |
 | 번호 | Number | _no | 예: uniform_no, doubleheader_no |
-| 순서 / 순번 | Sequence | _seq | 예: lineup_seq, pitch_seq |
+| 순서 / 순번 | Sequence | _seq | 예: lineup_seq, appearance_seq |
 | 여부 | Flag | is_ 접두어 | 예: is_retired |
 | 명 / 이름 | Name | _name | |
 | 일자 | Date | _date | |
@@ -34,7 +33,7 @@
 | 비율 | Rate | 지표 약어 | avg, obp, slg, era |
 | 금액 | Amount | 단위 접미어 | salary_10k_krw(만원), salary_usd |
 | 홈 / 원정 | Home / Away | home_ / away_ | |
-| 공식 | Official | _official | KBO 기록실 저장 값 (검증용) |
+| 공식 | Official | _official | KBO 기록실 저장 값 (직접 조회·검증용) |
 
 ## 8.2 야구 기록 용어
 
@@ -67,14 +66,8 @@
 | 승률 | WPCT | win_pct | 승 / (승 + 패) |
 | 게임차 | GB | games_behind | ((1위 승 − 승) + (패 − 1위 패)) / 2 |
 | 더블헤더 | DH | doubleheader_no | 같은 날 같은 두 팀의 2경기 (1차전 1, 2차전 2) |
-| 구종 | — | pitch_type_ko | 직구·슬라이더·체인지업 … (네이버 표기) |
-| 구속 | — | speed_kmh | km/h |
-| 볼카운트 | B-S | balls, strikes | 투구 직전 볼·스트라이크 수 |
-| 스트라이크존 구역 | zone | (뷰 `fn_strike_zone`) | Statcast 방식: 존 안 1~9, 존 밖 11~14 |
-| 헛스윙률 | Whiff% | whiff_pct | 헛스윙 / 스윙 |
 | 스프레이 차트 | — | spray_dir | 타구 방향 5구역 L·LC·C·RC·R (kbodata 결과 표기의 수비 위치로 추정) |
 | 박스스코어 | — | — | 경기 후 타자·투수별 기록표 (KBO 게임센터 '리뷰') |
-| 문자중계 | — | — | 투구 단위 중계 텍스트 (네이버 스포츠) |
 | playerId | — | player_id | KBO 공식 홈페이지가 선수에게 부여한 번호 |
 
 ## 8.3 표준 용어 (논리명 ↔ 물리명)

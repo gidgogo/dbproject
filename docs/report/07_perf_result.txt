@@ -16,75 +16,75 @@
 
 
 === Q1. 선수 프로필: 한 선수의 경기별 타격 기록 (인덱스 있음) ===
-                                 QUERY PLAN                                 
-----------------------------------------------------------------------------
- Bitmap Heap Scan on batter_game (actual rows=144 loops=1)
-   Recheck Cond: ((player_id)::integer = 800005)
-   Heap Blocks: exact=2
-   ->  Bitmap Index Scan on ix_batter_game_player (actual rows=144 loops=1)
-         Index Cond: ((player_id)::integer = 800005)
- Planning Time: 0.157 ms
- Execution Time: 0.037 ms
+                                 QUERY PLAN                                  
+-----------------------------------------------------------------------------
+ Bitmap Heap Scan on batter_match (actual rows=144 loops=1)
+   Recheck Cond: (player_id = 800005)
+   Heap Blocks: exact=3
+   ->  Bitmap Index Scan on ix_batter_match_player (actual rows=144 loops=1)
+         Index Cond: (player_id = 800005)
+ Planning Time: 0.074 ms
+ Execution Time: 0.033 ms
 (7 rows)
 
 
-=== Q1-비교. 같은 조회, ix_batter_game_player 인덱스를 지운 경우 ===
-                    QUERY PLAN                     
----------------------------------------------------
- Seq Scan on batter_game (actual rows=144 loops=1)
-   Filter: ((player_id)::integer = 800005)
+=== Q1-비교. 같은 조회, ix_batter_match_player 인덱스를 지운 경우 ===
+                     QUERY PLAN                     
+----------------------------------------------------
+ Seq Scan on batter_match (actual rows=144 loops=1)
+   Filter: (player_id = 800005)
    Rows Removed by Filter: 12816
- Planning Time: 0.049 ms
- Execution Time: 0.783 ms
+ Planning Time: 0.038 ms
+ Execution Time: 0.756 ms
 (5 rows)
 
 
 === Q2. 경기 결과 화면: 하루 경기 목록 ===
-                                                      QUERY PLAN                                                       
------------------------------------------------------------------------------------------------------------------------
+                                                     QUERY PLAN                                                      
+---------------------------------------------------------------------------------------------------------------------
  Hash Left Join (actual rows=5 loops=1)
    Hash Cond: (g.stadium_id = s.stadium_id)
    ->  Nested Loop (actual rows=5 loops=1)
-         Join Filter: ((hts.team_id)::bpchar = (g.home_team_id)::bpchar)
+         Join Filter: ((hts.team_id)::text = (g.home_team_id)::text)
          Rows Removed by Join Filter: 20
          ->  Hash Join (actual rows=5 loops=1)
-               Hash Cond: (((g.away_team_id)::bpchar = (ats.team_id)::bpchar) AND (g.season = (ats.season)::smallint))
+               Hash Cond: (((g.away_team_id)::text = (ats.team_id)::text) AND (g.season = ats.season))
                ->  Nested Loop (actual rows=5 loops=1)
                      ->  Hash Join (actual rows=5 loops=1)
-                           Hash Cond: ((a.game_id)::text = (g.game_id)::text)
-                           ->  Seq Scan on team_game a (actual rows=720 loops=1)
-                                 Filter: (home_away = 'A'::bpchar)
+                           Hash Cond: ((a.match_id)::text = (g.match_id)::text)
+                           ->  Seq Scan on match_team a (actual rows=720 loops=1)
+                                 Filter: ((home_away)::text = 'A'::text)
                                  Rows Removed by Filter: 720
                            ->  Hash (actual rows=5 loops=1)
                                  Buckets: 1024  Batches: 1  Memory Usage: 9kB
-                                 ->  Bitmap Heap Scan on game g (actual rows=5 loops=1)
-                                       Recheck Cond: (game_date = '2099-06-01'::date)
+                                 ->  Bitmap Heap Scan on match g (actual rows=5 loops=1)
+                                       Recheck Cond: (match_date = '2099-06-01'::date)
                                        Heap Blocks: exact=5
-                                       ->  Bitmap Index Scan on ix_game_date (actual rows=5 loops=1)
-                                             Index Cond: (game_date = '2099-06-01'::date)
-                     ->  Index Scan using uq_team_game_side on team_game h (actual rows=1 loops=5)
-                           Index Cond: (((game_id)::text = (a.game_id)::text) AND (home_away = 'H'::bpchar))
+                                       ->  Bitmap Index Scan on ix_match_date (actual rows=5 loops=1)
+                                             Index Cond: (match_date = '2099-06-01'::date)
+                     ->  Index Scan using uq_match_team_side on match_team h (actual rows=1 loops=5)
+                           Index Cond: (((match_id)::text = (a.match_id)::text) AND ((home_away)::text = 'H'::text))
                ->  Hash (actual rows=188 loops=1)
-                     Buckets: 1024  Batches: 1  Memory Usage: 16kB
+                     Buckets: 1024  Batches: 1  Memory Usage: 17kB
                      ->  Seq Scan on team_season ats (actual rows=188 loops=1)
          ->  Index Scan using uq_team_season_short on team_season hts (actual rows=5 loops=5)
-               Index Cond: ((season)::smallint = (ats.season)::smallint)
+               Index Cond: (season = ats.season)
    ->  Hash (actual rows=18 loops=1)
-         Buckets: 1024  Batches: 1  Memory Usage: 9kB
+         Buckets: 1024  Batches: 1  Memory Usage: 10kB
          ->  Seq Scan on stadium s (actual rows=18 loops=1)
- Planning Time: 1.807 ms
- Execution Time: 0.333 ms
+ Planning Time: 1.650 ms
+ Execution Time: 0.295 ms
 (32 rows)
 
 
 === Q3. 선수 시즌 성적: MV에서 읽기 ===
-                           QUERY PLAN                            
------------------------------------------------------------------
+                      QUERY PLAN                       
+-------------------------------------------------------
  Seq Scan on mv_season_batting (actual rows=1 loops=1)
-   Filter: (((player_id)::integer = 800005) AND (season = 2099))
+   Filter: ((player_id = 800005) AND (season = 2099))
    Rows Removed by Filter: 89
- Planning Time: 0.155 ms
- Execution Time: 0.020 ms
+ Planning Time: 0.134 ms
+ Execution Time: 0.016 ms
 (5 rows)
 
 
@@ -93,41 +93,41 @@
 -------------------------------------------------------------------------------------------------------------
  GroupAggregate (actual rows=1 loops=1)
    ->  Hash Left Join (actual rows=144 loops=1)
-         Hash Cond: ((bg.game_id)::text = (pa.game_id)::text)
+         Hash Cond: ((bg.match_id)::text = (pa.match_id)::text)
          ->  Hash Join (actual rows=144 loops=1)
-               Hash Cond: ((g.game_id)::text = (bg.game_id)::text)
-               ->  Seq Scan on game g (actual rows=720 loops=1)
+               Hash Cond: ((g.match_id)::text = (bg.match_id)::text)
+               ->  Seq Scan on match g (actual rows=720 loops=1)
                      Filter: (season = 2099)
                ->  Hash (actual rows=144 loops=1)
-                     Buckets: 1024  Batches: 1  Memory Usage: 16kB
-                     ->  Bitmap Heap Scan on batter_game bg (actual rows=144 loops=1)
-                           Recheck Cond: ((player_id)::integer = 800005)
-                           Heap Blocks: exact=2
-                           ->  Bitmap Index Scan on ix_batter_game_player (actual rows=144 loops=1)
-                                 Index Cond: ((player_id)::integer = 800005)
+                     Buckets: 1024  Batches: 1  Memory Usage: 17kB
+                     ->  Bitmap Heap Scan on batter_match bg (actual rows=144 loops=1)
+                           Recheck Cond: (player_id = 800005)
+                           Heap Blocks: exact=3
+                           ->  Bitmap Index Scan on ix_batter_match_player (actual rows=144 loops=1)
+                                 Index Cond: (player_id = 800005)
          ->  Hash (actual rows=144 loops=1)
                Buckets: 1024  Batches: 1  Memory Usage: 17kB
                ->  Subquery Scan on pa (actual rows=144 loops=1)
                      ->  HashAggregate (actual rows=144 loops=1)
-                           Group Key: p.game_id
+                           Group Key: p.match_id
                            Batches: 1  Memory Usage: 45kB
                            ->  Hash Join (actual rows=576 loops=1)
                                  Hash Cond: ((c.result_type)::text = (t.result_type)::text)
                                  ->  Hash Join (actual rows=576 loops=1)
                                        Hash Cond: (p.result_code = c.result_code)
                                        ->  Bitmap Heap Scan on plate_appearance p (actual rows=576 loops=1)
-                                             Recheck Cond: ((player_id)::integer = 800005)
-                                             Heap Blocks: exact=328
+                                             Recheck Cond: (player_id = 800005)
+                                             Heap Blocks: exact=316
                                              ->  Bitmap Index Scan on ix_pa_player (actual rows=576 loops=1)
-                                                   Index Cond: ((player_id)::integer = 800005)
+                                                   Index Cond: (player_id = 800005)
                                        ->  Hash (actual rows=179 loops=1)
                                              Buckets: 1024  Batches: 1  Memory Usage: 16kB
                                              ->  Seq Scan on pa_result_code c (actual rows=179 loops=1)
                                  ->  Hash (actual rows=23 loops=1)
                                        Buckets: 1024  Batches: 1  Memory Usage: 9kB
                                        ->  Seq Scan on pa_result_type t (actual rows=23 loops=1)
- Planning Time: 0.742 ms
- Execution Time: 1.089 ms
+ Planning Time: 0.556 ms
+ Execution Time: 0.860 ms
 (37 rows)
 
 
@@ -139,8 +139,8 @@
    Sort Method: quicksort  Memory: 26kB
    ->  Seq Scan on mv_team_standings (actual rows=10 loops=1)
          Filter: (season = 2099)
- Planning Time: 0.119 ms
- Execution Time: 0.019 ms
+ Planning Time: 0.095 ms
+ Execution Time: 0.017 ms
 (7 rows)
 
 
@@ -150,4 +150,4 @@
  
 (1 row)
 
-Time: 78.613 ms
+Time: 63.663 ms

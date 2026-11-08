@@ -50,10 +50,48 @@ SELECT * FROM v_compare_team_rank WHERE season = 2025 ORDER BY rank_off;
 
 ## 3. 내부 일관성 (행이 없어야 정상)
 
+`v_check_match_result`는 승패·점수 불일치뿐 아니라 홈·원정 팀 기록 누락도 반환한다.
+직접 SQL로 경기 기록을 수정했다면 먼저 `SELECT fn_refresh_stats();`로 MV를 갱신한다.
+
 ```sql
 SELECT 'team_runs' AS chk, count(*) FROM v_check_team_runs
 UNION ALL SELECT 'team_hits', count(*) FROM v_check_team_hits
 UNION ALL SELECT 'batter_pa', count(*) FROM v_check_batter_pa
-UNION ALL SELECT 'game_result', count(*) FROM v_check_game_result
+UNION ALL SELECT 'match_result', count(*) FROM v_check_match_result
 UNION ALL SELECT 'pitcher_decision', count(*) FROM v_check_pitcher_decision;
 ```
+
+## 4. KBO 전용 적재 검증 (네이버 제외)
+
+`data-pipeline/`에서 `python etl/crawl_to_tables.py` 후 `sql/load_kbo.sql`을 사용하면 경기 CSV 없이 공식 자료만 적재할 수 있다.
+이 상태에서 경기 집계 비교가 불일치하는 것은 박스스코어가 없기 때문이며, 공식 수집 실패로 해석하지 않는다.
+먼저 아래 조회로 실제 적재 건수·현재 프로필과 시즌 소속 구분을 확인한다.
+
+```sql
+SELECT 'player' AS source, count(*) FROM player
+UNION ALL SELECT 'player_season', count(*) FROM player_season
+UNION ALL SELECT 'batting_official', count(*) FROM season_batting_official
+UNION ALL SELECT 'pitching_official', count(*) FROM season_pitching_official
+UNION ALL SELECT 'rank_official', count(*) FROM team_rank_official;
+
+SELECT player_id, player_name, current_team_name, current_uniform_no, profile_crawled_at
+FROM player WHERE current_team_name = '상무';
+```
+
+실측 결과는 [수집 결과](collection_status.md)에 기록한다.
+스키마는 Flyway V1부터 새로 만들므로 네이버 테이블·뷰가 없다. 예전 psql 스크립트로 만든 DB는 버리고 빈 DB에서 다시 시작한다
+(예전 `10_kbo_only.sql` 전환 스크립트는 Flyway 전환 때 삭제, Git 이력에 남음).
+
+## 5. 자동 회귀 테스트
+
+```bash
+python -m pytest tests -q -rs
+```
+
+PostgreSQL에 접속할 수 있도록 `PGHOST`, `PGPORT`, `PGUSER`를 설정한다.
+`KBO_TEST_DB`는 테스트 전용 DB 이름으로 지정한다. 해당 DB는 테스트 시작 시 삭제하고 다시 만든다.
+PostgreSQL 없이 실행하면 DB 테스트가 생략되므로 `-rs` 출력에 건너뛴 항목이 없는지 확인한다.
+
+최종 검증은 PostgreSQL 16.2에서 68개 모두 통과했다. 부분 수집 보존, 잘못된 순위 응답 거부,
+프로필 시간순 갱신, 반복 적재, 전환 실패 시 전체 취소 및 보관 자료 보호를 포함한다.
+실제 수집본의 재파싱·재병합·반복 적재 결과는 [수집 결과](collection_status.md)에 기록했다.

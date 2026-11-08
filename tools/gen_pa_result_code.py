@@ -1,4 +1,4 @@
-"""kbodata 타석 결과 코드표([BATTER]) → data/reference/pa_result_type.csv, pa_result_code.csv
+"""kbodata 타석 결과 코드표([BATTER]) → data-pipeline/data/reference/pa_result_type.csv, pa_result_code.csv
 
 kbodata는 박스스코어의 이닝별 타격 결과(예: '좌중안', '삼진', '유땅')를
 4자리 숫자 코드로 바꿔서 i_1 ~ i_18 컬럼에 넣는다. 이 스크립트는 그 코드표를
@@ -28,9 +28,9 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_IN = ROOT / "data" / "reference" / "kbodata_batter_codes.ini"
-DEFAULT_OUT = ROOT / "data" / "reference" / "pa_result_code.csv"
-DEFAULT_TYPE_OUT = ROOT / "data" / "reference" / "pa_result_type.csv"
+DEFAULT_IN = ROOT / "data-pipeline" / "data" / "reference" / "kbodata_batter_codes.ini"
+DEFAULT_OUT = ROOT / "data-pipeline" / "data" / "reference" / "pa_result_code.csv"
+DEFAULT_TYPE_OUT = ROOT / "data-pipeline" / "data" / "reference" / "pa_result_type.csv"
 
 # (시작, 끝(포함), 유형코드, 유형명, 타수, 안타, 루타, 볼넷, 사구, 희비, 희번, 삼진, 병살, 타구종류)
 RANGES = [

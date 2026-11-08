@@ -1,67 +1,99 @@
 # KBO 야구 기록 DB — 데이터베이스응용 텀프로젝트
 
-KBO 경기 기록과 선수 통계를 관리하는 PostgreSQL 데이터베이스입니다. 구현 범위는 다섯 화면이에요.
-경기 결과, 선수 프로필·비교, 팀 프로필, 순위, Savant식 시각화를 지원합니다.
-백엔드는 Spring(김경주), 데이터 전처리는 배인표, ERD 설계와 추가 크롤링은 이성수 담당입니다.
+KBO 공식 선수·시즌 기록·팀 순위를 관리하는 PostgreSQL 데이터베이스입니다.
+**2026-11-06 결정: 네이버 문자중계 수집을 제외하고, 실제 수집 가능한 KBO 데이터를 사용합니다.**
+구종 비율·구속 분포·스트라이크존 히트맵은 구현 범위에서 제외합니다.
 
-이 브랜치에는 **이성수 담당 작업**(ERD·DDL, 크롤러, 보고서 데이터 모델 파트)이 들어 있습니다.
+현재 제공할 수 있는 화면은 선수 프로필·비교, 시즌 타자·투수 기록, 팀별 시즌 기록과 순위입니다.
+경기 결과·상대전적·타구 방향·경기 기반 백분위는 기존 kbodata 경기 데이터가 적재된 뒤 사용할 수 있습니다.
+수비·주루 전용 시즌 기록과 엔트리 등록·말소는 아직 수집하지 않으므로 이번 확정 범위에 포함하지 않습니다.
 
-## 폴더 구조
+## 팀 레포와의 관계
 
-| 폴더 | 내용 |
+팀 공용 레포 [gidgogo/KBO](https://github.com/gidgogo/KBO)(김경주 설정)가 기준입니다. 이 레포는 그 규칙에 맞춰 정리했습니다.
+
+| 팀 레포 규칙 | 이 레포에서 |
 |---|---|
-| `erd/` | ERD 그림(`img/`), DBML(dbdiagram.io), Mermaid, **PostgreSQL DDL**(`ddl/`) |
-| `crawl/` | 크롤러: KBO 기록실·선수 상세·순위, 네이버 문자중계, kbodata 보정 패치 → [crawl/README.md](crawl/README.md) |
-| `etl/` | 수집 결과 → DB 적재용 CSV 변환 (kbodata 변환은 배인표 작업의 참고 구현) |
-| `data/` | `reference/` 기준 데이터(팀·팀시즌·구장·타석결과코드·구종), 크롤링 결과 CSV (`raw/`, `load/`는 git 제외) |
-| `docs/` | 보고서 초안(`report/`), 사이트 구조·네이버 필드 정리, 메일, 회의 안건, 인수인계 |
-| `tools/` | ERD·테이블 기술서 자동 생성, ERD 그림 렌더링, 성능 확인 SQL |
-| `tests/` | pytest: 파서·변환기·DB 통합 테스트 (가상 데이터) |
+| Flyway: `backend/src/main/resources/db/migration/V{n}__{설명}.sql`, 머지된 파일 수정 금지 | 스키마 `V1__init_schema.sql`, 기준 데이터 `V2__reference_data.sql` (같은 경로) |
+| JPA `ddl-auto: validate` | DOMAIN·`smallint`·`char` 대신 `integer`·`varchar` + CHECK. 복합키 테이블은 `id bigint` 대리키 + 업무키 UNIQUE |
+| 패키지 `player` / `team` / `match` | 경기 테이블 이름 `match`, `match_team`, `batter_match`, `pitcher_match`, `match_event`, `match_umpire` |
+| docker Postgres 16 `localhost:5434`, DB·계정·비번 `kbo` | 문서·예시 명령을 모두 이 접속 정보로 맞춤 |
+| 브랜치 `<type>/<설명>` → PR → 리뷰 → squash, Conventional Commits | 같은 방식 (`feat(data): …`, `docs(erd): …`) |
+
+## 먼저 볼 파일
+
+- [개념 ERD](erd/img/erd_conceptual.png) · [논리 ERD](erd/img/erd_logical.svg) · [DBML](erd/kbo_erd.dbml)
+- [논리 모델 설명](docs/report/06_logical_model.md) · [물리 모델](docs/report/07_physical_model.md) · [테이블 기술서](docs/report/10_table_spec.md)
+- [백엔드 인계(김경주)](docs/handoff/backend_kimkyungju.md) · [전처리 인계(배인표)](docs/handoff/preprocessing_baeinpyo.md)
+- [수집·적재 가이드](data-pipeline/crawl/README.md) · [실제 수집 결과](docs/collection_status.md)
 
 ## 빠른 시작
 
-DB 만들기 (레포 최상위 폴더에서):
+**1) DB 스키마** — 팀 레포 루트에서 `docker compose up -d` 후 백엔드를 실행하면 Flyway가 V1·V2를 적용합니다.
+백엔드 없이 스키마만 만들 때는 Flyway CLI 도커를 씁니다(이 레포 루트에서).
 
 ```bash
-createdb kbo
+docker run --rm --network host -v "$PWD/backend/src/main/resources/db/migration:/flyway/sql" flyway/flyway:11 \
+  -url=jdbc:postgresql://localhost:5434/kbo -user=kbo -password=kbo migrate
 ```
+
+**2) 수집·적재** — `data-pipeline/` 폴더에서 실행합니다.
 
 ```bash
-psql -d kbo -v ON_ERROR_STOP=1 -f erd/ddl/00_create_all.sql
+cd data-pipeline
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+python crawl/kbo_records.py --seasons 2025
+python crawl/kbo_profiles.py --seasons 2025
+python crawl/kbo_team_rank.py --dates 2025-10-31
+python etl/crawl_to_tables.py
+PGPASSWORD=kbo psql -h localhost -p 5434 -U kbo -d kbo -v ON_ERROR_STOP=1 -f sql/load_kbo.sql
 ```
 
-테스트 (PostgreSQL 접속 정보는 `PGHOST`/`PGPORT`/`PGUSER` 환경변수):
+`sql/load_kbo.sql`은 경기 CSV 없이 실행할 수 있고 기존 경기 기록을 건드리지 않습니다.
+경기 JSON을 확보했다면 [수집 가이드](data-pipeline/crawl/README.md)의 박스스코어 적재 절차(`sql/load_data.sql`)를 사용합니다.
+현재 소속명은 상무 등도 원문으로 보존하고, 과거 소속은 `player_season`에서 조회합니다.
+현재 상세 페이지의 연봉은 수집 대상 시즌(예: 2025)의 과거 연봉으로 소급하지 않습니다.
+
+**3) 시즌 성적·순위 MV 갱신** — 데이터 적재 담당이 경기 데이터를 넣은 직후 한 번 합니다.
+`sql/load_data.sql` 마지막 줄이 `SELECT fn_refresh_stats();`(CONCURRENTLY)를 자동으로 호출하므로 따로 할 일은 없습니다.
+백엔드는 MV를 읽기만 합니다.
+
+## 폴더 구성
+
+| 폴더 | 내용 |
+|---|---|
+| `backend/src/main/resources/db/migration/` | Flyway 마이그레이션 (팀 레포에 같은 경로로 옮김) |
+| `data-pipeline/crawl/` | KBO 기록실·선수 상세·순위·동명이인 확인용 일자별 기록, kbodata 보정 |
+| `data-pipeline/etl/` | 수집 CSV·경기 JSON을 DB 적재용 CSV로 변환 |
+| `data-pipeline/sql/` | 적재용 psql 스크립트 (`\copy`, Flyway 아님) |
+| `data-pipeline/data/` | 기준 데이터와 수집 CSV (`raw/`, `load/`는 git 제외) |
+| `data-pipeline/tests/` | 파서·변환·마이그레이션·DB 적재 검증 |
+| `erd/` | ERD 그림·DBML·Mermaid, 도메인 정의 CSV |
+| `docs/` | 모델 보고서, 수집 결과, 인수인계, 회의 문서 |
+| `tools/` | DB 기반 ERD·기술서 생성, 기준 데이터 마이그레이션 생성, 그림 렌더링, 성능 확인 |
+
+## 검증
 
 ```bash
-python -m pytest tests -q
+cd data-pipeline
+PGHOST=localhost PGPORT=5434 PGUSER=kbo PGPASSWORD=kbo python -m pytest tests -q -rs
 ```
 
-크롤링·적재 순서는 [crawl/README.md](crawl/README.md) 에 있습니다.
+DB 테스트는 `psql`과 PostgreSQL 접속이 필요합니다. 마이그레이션 V1·V2를 Flyway와 같은 순서로 적용한 뒤 적재·제약조건을 확인합니다.
+테스트용 DB(`KBO_TEST_DB`, 기본 `kbo_pytest`)를 매번 지우고 새로 만들므로 운영 DB 이름(`kbo`)을 지정하지 않습니다.
+실제 수집과 가상 데이터 검증 범위는 [수집 결과](docs/collection_status.md)에 구분해 기록합니다.
 
-## 산출물 현황 (2026-11-05)
+기준 데이터 CSV(`data-pipeline/data/reference/`)를 고친 뒤에는 V2를 고치지 말고 새 버전을 만듭니다.
 
-| 작업지시서 항목 | 산출물 | 상태 |
-|---|---|---|
-| 2-0 교수님 문의 | [docs/email_professor.md](docs/email_professor.md) | 메일 발송은 성수가 직접 |
-| 2-1 ERD | [개념 ERD](erd/img/erd_conceptual.png) · [논리 ERD](erd/img/erd_logical.svg) · [DBML](erd/kbo_erd.dbml) · [DDL](erd/ddl/) | ✅ v0 (PostgreSQL 16 테스트 통과) · 🟡 11/10 확정 |
-| 2-1 뷰 | 시즌 타자(타율·출루율·장타율·OPS)·투수(ERA·WHIP)·팀 순위 MV + 시각화·검증 뷰 | ✅ |
-| 2-2 playerId·선수 상세 | `crawl/kbo_records.py`, `crawl/kbo_profiles.py`, 매핑 검증 `etl/kbodata_to_tables.py --check-only` | ✅ 코드 · ⏳ 맥에서 수집 |
-| 2-3 기록실 시즌 기록·순위 | `crawl/kbo_records.py`, `crawl/kbo_team_rank.py`, 비교 뷰 `v_compare_*` | ✅ 코드 · ⏳ 수집 |
-| 2-4 네이버 문자중계 | [docs/naver_relay_fields.md](docs/naver_relay_fields.md), `crawl/naver_probe.py`, `crawl/naver_relay.py` | ✅ 코드·문서 · ⏳ 실측 |
-| 보고서 5~10장 | [docs/report/](docs/report/) | 🟡 초안 |
-| 11/10 회의 | [docs/meeting_1110_agenda.md](docs/meeting_1110_agenda.md) | ✅ |
-| 인수인계 | [백엔드(김경주)](docs/handoff/backend_kimkyungju.md) · [전처리(배인표)](docs/handoff/preprocessing_baeinpyo.md) | ✅ |
+```bash
+python tools/gen_reference_migration.py --version 3 --name reference_data_update
+```
 
-## 확인이 필요한 것 (❓)
+## 담당과 출처
 
-클라우드 환경에서는 koreabaseball.com과 네이버에 접속할 수 없었습니다. 그래서 페이지 구조는 실제로 그 사이트를 크롤링하는
-공개 오픈소스 코드로 확인하고([docs/kbo_site_structure.md](docs/kbo_site_structure.md)), 맥에서 다시 확인하는
-probe 스크립트를 만들었습니다. 수집 전에 `crawl/probe_kbo.py`, `crawl/naver_probe.py`부터 실행하세요.
-
-## 데이터 출처
-
-- KBO 공식 홈페이지 (www.koreabaseball.com) — 경기·선수 기록
-- kbo-data (GitHub dev-bearabbit/kbo-data, MIT License) — 박스스코어 수집 도구.
-  `data/reference/kbodata_batter_codes.ini` 는 이 도구의 결과 코드표 발췌 (라이선스: `data/reference/LICENSE.kbodata`)
-- 네이버 스포츠 문자중계 — 투구 데이터
-- 데이터는 수업 프로젝트 용도로만 사용합니다.
+백엔드 김경주, 전처리 배인표, ERD·추가 수집 이성수.
+교수님은 데이터 수집 방법은 신경 쓰지 않는다고 말씀하셨으며 별도 문의는 필요하지 않습니다.
+데이터 출처는 KBO 공식 홈페이지이며, 박스스코어 도구 kbo-data는 MIT 라이선스입니다.
+코드표 발췌의 라이선스는 `data-pipeline/data/reference/LICENSE.kbodata`에 보존합니다.

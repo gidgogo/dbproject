@@ -6,13 +6,17 @@
 
 ## 1. ERD 초안 리뷰 (김경주, 배인표) — 20분
 
-테이블 24개: 기준 정보 3, 선수 3, 경기 기록 12, 투구 3, 기록실 공식(검증용) 3
+테이블 21개: 기준 정보 3, 선수 3, 경기 기록 12, KBO 공식 시즌 기록·순위 3. 네이버 투구 3개 테이블 제외.
 
 결정할 것
 - [ ] 엔터티 목록·관계에 빠진 화면 기능이 있는가 (경기 결과 / 선수 프로필·비교 / 팀 프로필 / 순위 / 시각화)
 - [ ] 주식별자: 선수 = KBO playerId(integer), 경기 = kbodata id `20250601_OBWO0`, 팀 = KBO 팀코드 — 동의?
-- [ ] 시즌 성적·순위를 테이블에 저장하지 않고 **머티리얼라이즈드 뷰**로 계산하는 방식 — 백엔드에서 MV를 읽기 전용 엔터티로 써도 되는가
-- [ ] `team_game.home_away` 의도적 중복(트리거로 일관성 보장) 괜찮은가
+- [ ] 공식 시즌 기록·순위는 `_official` 표로 먼저 제공하고, 박스스코어 집계 **머티리얼라이즈드 뷰**는 경기 적재 후 비교하는 방식 — 백엔드 조회 출처를 구분하는가
+- [ ] `match_team.home_away` 의도적 중복(트리거로 일관성 보장) 괜찮은가
+- [ ] 경기 테이블명 `match` 통일(백엔드 패키지 match와 맞춤) — 11/7 반영함, 확인만
+- [ ] 복합키 테이블에 대리키 `id bigint` + 업무키 UNIQUE — JPA `@Id Long id` 하나로 매핑 (11/7 반영, Spring Boot 4.1.2 validate 통과 확인). 다른 방식 원하면 지금 결정
+- [ ] MV 갱신은 데이터 적재 담당이 적재 직후(`load_data.sql`이 자동), 백엔드는 읽기만 — 동의?
+- [ ] V1·V2 마이그레이션을 팀 레포에 누가·언제 PR로 올릴지 (회의 후 김경주 리뷰)
 
 ## 2. 컬럼명·자료형 규칙 합의 — 15분
 
@@ -20,13 +24,13 @@
 - [ ] 영어 소문자 snake_case, 테이블 단수형, `_id`/`_code`/`is_`/단위 접미어(`_cm`, `_kmh`, `_10k_krw`)
 - [ ] 이닝은 **아웃카운트 정수**(6⅓ = 19)로 저장, 표시만 `6 1/3`
 - [ ] 비율은 numeric (타율 numeric(4,3)), 돈은 만원 단위 정수 + 달러 별도 컬럼
-- [ ] PostgreSQL DOMAIN 사용 (Spring은 `ddl-auto=none`, docs/handoff/backend_kimkyungju.md)
+- [x] ~~PostgreSQL DOMAIN 사용~~ → 팀 레포 `ddl-auto: validate`에 맞춰 DOMAIN·smallint·char를 빼고 integer·varchar + CHECK로 바꿈 (11/7, 도메인은 보고서 9장에만)
 
 ## 3. 배인표 전처리와의 인터페이스 — 10분
 
-- [ ] 매핑표 형식: `data/player_season_team.csv` (season, team_id, player_id, name, is_batter, is_pitcher)
-- [ ] 적재용 CSV 형식 = `etl/kbodata_to_tables.py` 출력 (테이블 컬럼 순서 그대로) — 참고 구현을 그대로 쓸지, 인표가 새로 만들지
-- [ ] **kbodata 버그 2개 공유**: 결정 없는 투수도 'L'(패), 타순 열 버림 → `crawl/kbodata_patch.py` 를 kbo_fetch.py에 적용한 뒤 시즌 수집하자
+- [ ] 매핑표 형식: `data-pipeline/data/player_season_team.csv` (season, team_id, player_id, name, is_batter, is_pitcher)
+- [ ] 적재용 CSV 형식 = `data-pipeline/etl/kbodata_to_tables.py` 출력 (테이블 컬럼 순서 그대로) — 참고 구현을 그대로 쓸지, 인표가 새로 만들지
+- [ ] **kbodata 버그 2개 공유**: 결정 없는 투수도 'L'(패), 타순 열 버림 → `data-pipeline/crawl/kbodata_patch.py` 를 kbo_fetch.py에 적용한 뒤 시즌 수집하자
 - [ ] 기타기록(ETC_info) 파싱 분담 — 참고 구현(`etl/kbodata_parse.parse_etc_item`) 있음
 
 ## 4. 수집 연도 범위 확정 — 5분
@@ -36,7 +40,7 @@
 | 2021~2025 | 수집·검증 부담 적음, SSG 팀명 하나 | 팀명 변경 이력 사례가 적음 |
 | 2008~2025 | kbodata 지원 전체, 팀명 변경(넥센→키움, SK→SSG) 사례 풍부 | kbodata 시즌당 40~60분 × 18, 오래된 시즌 데이터 품질 ❓ |
 
-🟡 추천: **2025 먼저 → 2021~2024 → 시간 남으면 2008까지.** 투구(네이버 좌표)는 2023년 이후만 있으므로 시각화는 2023~2025.
+🟡 추천: **2025 먼저 → 2021~2024 → 시간 남으면 2008까지.** 네이버 수집과 투구별 시각화는 제외. 먼저 2025 KBO 공식 기록으로 화면을 구성한다.
 참고: 오늘(11/5) 기준 2026 시즌도 끝나서 2026 데이터도 받을 수 있다 — 넣을지 결정.
 
 ## 5. 기타 — 10분
@@ -46,13 +50,13 @@
 - [ ] 보고서 1~4번(개요서, 업무 기능도, 단위 업무 기술서, 업무 흐름도) 담당자
 - [ ] DB dump 담당 (김경주 추천)
 - [ ] 팀명
-- [ ] 교수님 답변 공유 (docs/email_professor.md 의 답장별 대응표)
+- [ ] 교수님이 데이터 수집 방법은 신경 쓰지 않는다고 말씀하신 내용 공유 (별도 문의 불필요, docs/email_professor.md)
 
 ## 공유할 진행 상황 (이성수)
 
 | 항목 | 상태 |
 |---|---|
 | ERD v0 + PostgreSQL DDL | ✅ 로컬 PostgreSQL 16에서 생성·적재·뷰·제약조건 테스트 통과 |
-| 크롤러 (기록실·선수 상세·순위·네이버) | ✅ 코드 완료, 맥에서 probe 실행 후 실데이터 수집 (11/9 샘플 목표) |
+| 크롤러 (KBO 기록실·선수 상세·순위) | 실제 수집 범위·건수는 docs/collection_status.md. 네이버 제외 |
 | kbodata 변환·검증 | ✅ 참고 구현 + 버그 패치 |
 | 보고서 6~10장 | 🟡 초안 (6, 7, 8, 9, 10장) |
