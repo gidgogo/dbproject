@@ -15,7 +15,7 @@ CSV를 고치면 V2는 그대로 두고 새 버전(V3…)을 만든다.
 | kbodata_batter_codes.ini, LICENSE.kbodata | kbodata 결과 코드표 발췌와 MIT 라이선스 | |
 | match_event_type.csv | 박스스코어 기타 기록 항목 | 모르는 항목이 나오면 변환 리포트에 표시 |
 | position.csv | kbodata 포지션 코드 | 참고용 |
-| player_name_overrides.csv | 동명이인 수동 매핑 (season, team_id, name, player_id, note) | 필요할 때 추가 |
+| player_name_overrides.csv | 동명이인 수동 매핑 (season, team_id, name, player_id, match_id, note). match_id를 적으면 그 경기만, 비우면 시즌·팀 전체 | 변환기가 선수ID 실패로 멈추면 추가 |
 
 ## 크롤링 결과 (맥에서 생성, 팀 공유용)
 

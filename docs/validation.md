@@ -43,12 +43,15 @@ SELECT * FROM v_compare_team_rank WHERE season = 2025 ORDER BY rank_off;
 
 차이가 생길 수 있는 이유 (보고서에 함께 적기)
 - kbodata가 받지 못한 경기 (kbodata README의 미제공 경기 목록, 우천 서스펜디드 등)
-- 이름 매핑 실패로 빠진 행 (`data/load/_unmatched_players.csv`)
+- 이름 매핑 실패: 변환기가 적재용 CSV를 만들지 않고 멈춘다(`data/load/_unmatched_players.csv`를 보고 예외표에 추가 후 재실행)
 - 투수 결정(W/L) — kbodata 버그 (`crawl/kbodata_patch.py` 적용 전 데이터)
 - WHIP — kbodata는 볼넷·사구를 합쳐 줘서 사구 포함 근사값
 - 타석(PA) — kbodata 이닝 칸에 없는 타석(예: 3아웃 주루사 직전 타석)은 셀 수 없음
 
-## 3. 내부 일관성 (행이 없어야 정상)
+## 3. 내부 일관성 (`v_check_*`: 행이 없어야 정상)
+
+`v_compare_*`(2번)는 비교 대상 전체가 나오므로 `WHERE is_match IS NOT TRUE`로 불일치만 본다.
+`v_check_pitcher_decision`은 승리·패전 투수 수뿐 아니라 승리·세이브가 이긴 팀, 패전이 진 팀에 있는지도 확인한다.
 
 `v_check_match_result`는 승패·점수 불일치뿐 아니라 홈·원정 팀 기록 누락도 반환한다.
 직접 SQL로 경기 기록을 수정했다면 먼저 `SELECT fn_refresh_stats();`로 MV를 갱신한다.

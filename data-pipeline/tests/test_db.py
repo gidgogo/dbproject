@@ -2,9 +2,11 @@
 
 필요: psql 명령과 접속 가능한 PostgreSQL (환경변수 PGHOST, PGPORT, PGUSER, PGPASSWORD 사용).
 팀 docker DB라면: PGHOST=localhost PGPORT=5434 PGUSER=kbo PGPASSWORD=kbo
-테스트는 KBO_TEST_DB(기본 kbo_pytest) 데이터베이스를 매번 지우고 새로 만든다. 운영용 kbo DB 이름을 지정하지 말 것.
+테스트는 KBO_TEST_DB(기본 kbo_pytest) 데이터베이스를 매번 지우고 새로 만든다.
+실수로 개발·운영 DB(kbo 등)를 지우지 않도록 이름이 _pytest 또는 _test 로 끝나는 DB만 허용한다.
 접속이 안 되면 건너뛴다. 실행(data-pipeline 폴더에서): python -m pytest tests/test_db.py -v
 """
+import csv
 import json
 import os
 import re
@@ -18,6 +20,15 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]          # data-pipeline/
 MIGRATIONS = ROOT.parent / "backend/src/main/resources/db/migration"
 DB = os.environ.get("KBO_TEST_DB", "kbo_pytest")
+SAFE_TEST_DB = re.compile(r"[a-z][a-z0-9_]*_(pytest|test)")
+
+
+def check_test_db_name(name: str) -> str:
+    """DROP DATABASE 해도 되는 테스트 전용 이름인지 확인한다 (예: kbo_pytest, kbo_ci_test)."""
+    if not SAFE_TEST_DB.fullmatch(name):
+        raise ValueError(f"KBO_TEST_DB={name!r}: 테스트는 이 DB를 지우고 다시 만든다. "
+                         "이름이 _pytest 또는 _test 로 끝나는 테스트 전용 DB만 쓸 수 있다")
+    return name
 
 
 def migration_files() -> list[Path]:
@@ -57,6 +68,10 @@ def loaded_db(load_work):
     probe = subprocess.run(["psql", "-X", "-Atc", "select 1", "-d", "postgres"], capture_output=True, text=True)
     if probe.returncode != 0:
         pytest.skip(f"PostgreSQL 접속 불가: {probe.stderr.strip()}")
+    try:
+        check_test_db_name(DB)
+    except ValueError as e:
+        pytest.fail(str(e))
     psql(f"DROP DATABASE IF EXISTS {DB}", db="postgres")
     psql(f"CREATE DATABASE {DB}", db="postgres")
     for migration in migration_files():
@@ -227,6 +242,79 @@ def test_incomplete_box_scores_roll_back_without_losing_data(loaded_db, load_wor
                             cwd=tmp_path, capture_output=True, text=True)
     assert result.returncode != 0 and "팀경기기록" in result.stderr
     assert rows("select count(*) from player union all select count(*) from match_team") == before
+
+
+def _load_from(tmp_path: Path) -> subprocess.CompletedProcess:
+    return subprocess.run(["psql", "-X", "-q", "-v", "ON_ERROR_STOP=1", "-d", DB,
+                           "-f", str(ROOT / "sql/load_data.sql")], cwd=tmp_path, capture_output=True, text=True)
+
+
+COUNTS = ("select count(*) from player union all select count(*) from batter_match "
+          "union all select count(*) from pitcher_match")
+
+
+def test_blocked_conversion_is_not_loaded(loaded_db, load_work, tmp_path):
+    """변환기가 선수ID 실패 등으로 멈춘 결과(_load_status.csv = blocked)는 아무것도 바꾸지 않는다."""
+    shutil.copytree(load_work / "data", tmp_path / "data")
+    (tmp_path / "data/load/_load_status.csv").write_text("status,detail\nblocked,선수ID 실패 1건\n", encoding="utf-8")
+    before = rows(COUNTS)
+    result = _load_from(tmp_path)
+    assert result.returncode != 0 and "경기 변환이 불완전" in result.stderr
+    assert rows(COUNTS) == before
+
+
+def test_missing_batter_rolls_back_without_losing_data(loaded_db, load_work, tmp_path):
+    """다른 변환기가 중간 타자를 빠뜨린 CSV를 만들어도 기존 기록을 지우지 않고 되돌린다."""
+    shutil.copytree(load_work / "data", tmp_path / "data")
+    load = tmp_path / "data/load"
+    with open(load / "batter_match.csv", encoding="utf-8", newline="") as f:
+        batters = list(csv.DictReader(f))
+    gone = next(r for r in batters if r["lineup_seq"] == "2")
+    for name, key in (("batter_match", None), ("plate_appearance", None)):
+        path = load / f"{name}.csv"
+        with open(path, encoding="utf-8", newline="") as f:
+            reader = csv.DictReader(f)
+            keep = [r for r in reader if (r["match_id"], r["player_id"]) != (gone["match_id"], gone["player_id"])]
+            fields = reader.fieldnames
+        with open(path, "w", encoding="utf-8", newline="") as f:
+            w = csv.DictWriter(f, fieldnames=fields)
+            w.writeheader()
+            w.writerows(keep)
+    before = rows(COUNTS)
+    result = _load_from(tmp_path)
+    assert result.returncode != 0 and "타자 기록이 빠졌습니다" in result.stderr
+    assert gone["match_id"] in result.stderr
+    assert rows(COUNTS) == before
+
+
+def test_pitcher_decision_check_catches_swapped_winner(loaded_db):
+    """승리·패전 개수는 맞지만 팀이 뒤바뀐 경우도 찾아야 한다."""
+    got = rows("""begin;
+        update pitcher_match set decision = case decision when 'W' then 'L' else 'W' end
+        where match_id = '20250102_OBWO0' and decision in ('W', 'L');
+        select match_id from v_check_pitcher_decision order by 1;
+        rollback;""")
+    assert got == [["20250101_OBWO0"], ["20250102_OBWO0"]]
+
+
+def test_compare_pitching_checks_decisions(loaded_db):
+    before = rows("select is_match from v_compare_pitching_official where player_id = 900211")
+    got = rows("""begin;
+        update season_pitching_official set saves = saves + 1 where player_id = 900211;
+        select is_match from v_compare_pitching_official where player_id = 900211;
+        rollback;""")
+    assert got == [["f"]]
+    assert rows("select is_match from v_compare_pitching_official where player_id = 900211") == before
+
+
+@pytest.mark.parametrize("name,ok", [("kbo_pytest", True), ("kbo_ci_test", True),
+                                     ("kbo", False), ("postgres", False), ("kbo_pytest; drop", False)])
+def test_only_test_databases_can_be_dropped(name, ok):
+    if ok:
+        assert check_test_db_name(name) == name
+    else:
+        with pytest.raises(ValueError):
+            check_test_db_name(name)
 
 
 def test_kbo_only_loader_needs_no_match_files(loaded_db, load_work, tmp_path):

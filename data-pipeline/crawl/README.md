@@ -80,8 +80,10 @@ PGPASSWORD=kbo psql -h localhost -p 5434 -U kbo -d kbo -v ON_ERROR_STOP=1 -f sql
 ```
 
 동명이인은 playerId 자체와 별개로 이름→ID 매핑을 검증한다. 모호한 행을 임의로 연결하지 않는다.
-필요하면 `crawl/kbo_gamelogs.py --from-unmatched data/load/_unmatched_players.csv`로 출전일을 확인한다.
-스코어보드에 홈·원정 두 행이 없으면 적재 전체를 취소한다. 경기 집계 MV는 `sql/load_data.sql` 마지막 줄이 자동으로 갱신한다.
+매핑에 실패한 선수가 한 명이라도 있으면 변환기가 적재용 CSV를 만들지 않고 종료 코드 1로 멈춘다(`_load_status.csv` = blocked,
+`load_data.sql`도 중단). `crawl/kbo_gamelogs.py --from-unmatched data/load/_unmatched_players.csv`로 출전일을 받거나
+`data/reference/player_name_overrides.csv`에 추가한 뒤 다시 실행한다.
+스코어보드에 홈·원정 두 행이 없거나 타자·투수 행 번호가 비면 적재 전체를 취소한다. 경기 집계 MV는 `sql/load_data.sql` 마지막 줄이 자동으로 갱신한다.
 박스스코어를 완전히 적재한 뒤 공식 시즌 기록과 비교한다.
 
 ## 수집 범위와 요청 방식

@@ -16,8 +16,9 @@
 ## 2. 로컬 DB 띄우기
 
 ```bash
-docker compose up -d          # 팀 레포 루트. postgres:16, localhost:5434, DB/계정/비번 모두 kbo
-./gradlew bootRun             # backend/. 시작할 때 Flyway가 V1 → V2 적용, 이어서 Hibernate validate
+docker compose up -d          # 팀 레포 루트에서. postgres:16, localhost:5434, DB/계정/비번 모두 kbo
+cd backend
+./gradlew bootRun             # 시작할 때 Flyway가 V1 → V2 적용, 이어서 Hibernate validate
 ```
 
 - **빈 DB에서 시작한다.** 팀 설정에 `baseline-on-migrate: true`가 있어서, 테이블이 이미 있는 DB(예: 예전 psql 스크립트로 만든 DB)에
@@ -106,7 +107,13 @@ PGPASSWORD=kbo psql -h localhost -p 5434 -U kbo -d kbo -f sql/load_data.sql
 
 ## 7. 데이터 품질 확인
 
-적재 후 아래 검증 뷰에 행이 나오면 데이터 문제다.
+검증 뷰는 두 종류이고 읽는 법이 다르다.
 
-`v_check_team_runs`, `v_check_team_hits`, `v_check_batter_pa`, `v_check_match_result`, `v_check_pitcher_decision`,
-`v_compare_batting_official`, `v_compare_pitching_official`, `v_compare_team_rank`
+| 뷰 | 정상일 때 | 문제 찾는 법 |
+|---|---|---|
+| `v_check_team_runs`, `v_check_team_hits`, `v_check_batter_pa`, `v_check_match_result`, `v_check_pitcher_decision` | **0행** | 나온 행이 곧 문제 |
+| `v_compare_batting_official`, `v_compare_pitching_official`, `v_compare_team_rank` | 비교 대상 **전체 행**이 나옴 | `WHERE is_match IS NOT TRUE` 로 불일치만 |
+
+- `v_check_pitcher_decision`: 승리·패전 투수가 1명씩인지, 승리·세이브가 이긴 팀·패전이 진 팀에 있는지까지 본다.
+- `v_compare_pitching_official.is_match`: 승·패·세이브·홀드·아웃·피안타·삼진·자책이 모두 같아야 true.
+- 적재 스크립트(`data-pipeline/sql/load_data.sql`)는 선수ID를 못 찾은 변환 결과나 타자·투수가 빠진 경기를 아예 적재하지 않는다(기존 기록 유지).

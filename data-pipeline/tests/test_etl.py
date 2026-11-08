@@ -138,3 +138,73 @@ def test_current_profile_is_not_historical_membership(tmp_path):
     write_csv(data / "players.csv", [profile], list(profile))
     build(data, out)
     assert all(not r["uniform_no"] for r in read_csv(out / "player_season.csv"))
+
+
+def test_player_mapper_position_and_match_override():
+    m = PlayerMapper()
+    m.add(2025, "WO", 50167, "이주형", is_batter=True)
+    m.add(2025, "WO", 51302, "이주형", is_batter=True)
+    m.add(2025, "SS", 62360, "김태훈", is_batter=True, is_pitcher=True)
+    m.add(2025, "SS", 65040, "김태훈", is_batter=True)
+    # 프로필이 없으면 포지션으로 판단하지 않는다
+    assert m.match(2025, "WO", "이주형", "batter", positions="8").method == "ambiguous"
+    m.profile_position.update({50167: "외야수", 51302: "내야수", 62360: "투수", 65040: "외야수"})
+    r = m.match(2025, "WO", "이주형", "batter", positions="8")            # 중견수 → 외야수
+    assert (r.player_id, r.method) == (50167, "position")
+    assert m.match(2025, "WO", "이주형", "batter", positions="H6").player_id == 51302  # 대타 후 유격수
+    assert m.match(2025, "WO", "이주형", "batter", positions="H").method == "ambiguous"  # 둘 다 야수
+    assert m.match(2025, "SS", "김태훈", "batter", positions="H").player_id == 65040     # 대타 → 투수 제외
+    assert m.match(2025, "SS", "김태훈", "pitcher").player_id == 62360
+    # 경기별 예외가 시즌 예외보다 먼저
+    m.overrides[(2025, "WO", "이주형")] = 50167
+    m.match_overrides[("20250601_OBWO0", "WO", "이주형")] = 51302
+    assert m.match(2025, "WO", "이주형", "batter", match_id="20250601_OBWO0").player_id == 51302
+    assert m.match(2025, "WO", "이주형", "batter", match_id="20250602_OBWO0").player_id == 50167
+
+
+def _run_converter(players: Path, out: Path, *extra: str) -> int:
+    from etl import kbodata_to_tables
+    raw = ROOT / "tests/fixtures/synthetic/raw_games.json"
+    return kbodata_to_tables.main([str(raw), "--players", str(players), "--out", str(out),
+                                   "--overrides", str(out / "_none.csv"), "--game-dates", str(out / "_none.csv"),
+                                   "--profiles", str(out / "_none.csv"), *extra])
+
+
+def _status(out: Path) -> str:
+    with open(out / "_load_status.csv", encoding="utf-8", newline="") as f:
+        return next(csv.DictReader(f))["status"]
+
+
+def test_converter_blocks_load_when_player_is_unmatched(tmp_path):
+    full = ROOT / "tests/fixtures/synthetic/data/player_season_team.csv"
+    out = tmp_path / "load"
+    assert _run_converter(full, out) == 0
+    assert _status(out) == "ok" and (out / "batter_match.csv").exists()
+
+    # 타자 한 명을 매핑표에서 빼면: 종료 코드 1, 적재용 CSV 없음(이전 실행 것도 삭제), 상태 blocked
+    lines = full.read_text(encoding="utf-8").splitlines()
+    missing = tmp_path / "players_missing.csv"
+    missing.write_text("\n".join(l for l in lines if ",900102," not in l) + "\n", encoding="utf-8")
+    assert _run_converter(missing, out) == 1
+    assert _status(out) == "blocked"
+    assert not any((out / f"{t}.csv").exists() for t in ("match", "batter_match", "pitcher_match"))
+    with open(out / "_unmatched_players.csv", encoding="utf-8", newline="") as f:
+        assert [r["name"] for r in csv.DictReader(f)] and "적재 중단" in (out / "_kbodata_report.md").read_text()
+
+    # 매핑표 자체가 없어도 성공으로 끝나면 안 된다
+    assert _run_converter(tmp_path / "없는파일.csv", tmp_path / "load2") == 1
+    assert _status(tmp_path / "load2") == "blocked"
+
+
+def test_converter_blocks_load_on_unknown_pa_code(tmp_path):
+    import json
+    games = json.loads((ROOT / "tests/fixtures/synthetic/raw_games.json").read_text(encoding="utf-8"))
+    games[0]["contents"]["away_batter"][0]["i_1"] = "9999"   # 코드표에 없는 타석 결과
+    raw = tmp_path / "raw.json"
+    raw.write_text(json.dumps(games, ensure_ascii=False), encoding="utf-8")
+    from etl import kbodata_to_tables
+    out = tmp_path / "load"
+    rc = kbodata_to_tables.main([str(raw), "--players", str(ROOT / "tests/fixtures/synthetic/data/player_season_team.csv"),
+                                 "--out", str(out), "--profiles", str(tmp_path / "_none.csv")])
+    assert rc == 1 and _status(out) == "blocked"
+    assert "9999" in (out / "_kbodata_report.md").read_text(encoding="utf-8")
